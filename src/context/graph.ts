@@ -35,8 +35,8 @@ export class ContextNode {
     this.engine = data.engine;
   }
 
-  addMessage(role: CanonicalMessage["role"], content: string): CanonicalMessage {
-    return this.store.addMessage(role, content);
+  addMessage(role: CanonicalMessage["role"], content: string, metadata: Record<string, unknown> = {}): CanonicalMessage {
+    return this.store.addMessage(role, content, metadata);
   }
 
   switchModel(newModelId: string): void {

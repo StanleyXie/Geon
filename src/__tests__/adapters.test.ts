@@ -61,6 +61,12 @@ describe("toAnthropicMessages", () => {
     expect(result[2]!.role).toBe("user");
     expect(result[3]!.role).toBe("assistant");
   });
+
+  it("throws if tool_call message is missing toolUseId", () => {
+    const m = msg("tool_call", "Read(a.ts)");
+    m.metadata = { toolName: "Read", toolInput: {} };  // missing toolUseId
+    expect(() => toAnthropicMessages([m])).toThrow(/toolUseId/);
+  });
 });
 
 describe("toGeminiContents", () => {
@@ -95,6 +101,12 @@ describe("toGeminiContents", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.role).toBe("user");
     expect(result[0]!.parts[0]).toHaveProperty("functionResponse");
+  });
+
+  it("throws if tool_call message is missing toolName", () => {
+    const m = msg("tool_call", "Read(a.ts)");
+    m.metadata = { toolInput: {} };  // missing toolName
+    expect(() => toGeminiContents([m])).toThrow(/toolName/);
   });
 });
 

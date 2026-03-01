@@ -47,4 +47,12 @@ describe("ContextGraph (Phase 1 — single node)", () => {
     expect(graph.root.l2.modelId).toBe("gemini-2.5-flash");
     expect(graph.root.l3.modelId).toBe("gemini-2.5-flash");
   });
+
+  it("addMessage passes metadata to the store", () => {
+    const graph = ContextGraph.create("gemini-2.5-flash");
+    const node = graph.activeNode;
+    const meta = { toolUseId: "abc", toolName: "Read" };
+    const msg = node.addMessage("tool_call", "Read(file.ts)", meta);
+    expect(msg.metadata).toEqual(meta);
+  });
 });
