@@ -50,7 +50,7 @@ export class GeminiAdapter implements ProviderAdapter {
   async *stream(
     messages: CanonicalMessage[],
     systemPrompt: string,
-    tools: unknown[],
+    _tools: unknown[],  // reserved; GeminiAdapter always uses BUILT_IN_TOOLS
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk> {
     const client = createClient();
@@ -62,8 +62,8 @@ export class GeminiAdapter implements ProviderAdapter {
 
     // Convert the canonical message history (user + assistant turns) to Gemini
     // Content[] format. System messages are filtered out by toGeminiContents().
-    // Cast to the SDK's Content[] type — our GeminiContent is structurally
-    // compatible for text-only messages (Phase 1 doesn't use function calls).
+    // Cast to the SDK's Content[] type — GeminiContent is structurally
+    // compatible for text, functionCall, and functionResponse parts.
     const contents = toGeminiContents(messages) as Content[];
 
     let inputTokens = 0;
@@ -92,6 +92,7 @@ export class GeminiAdapter implements ProviderAdapter {
             yield { type: "text", text: p.text };
           } else if ("functionCall" in p && p.functionCall) {
             const fc = p.functionCall as { name?: string; args?: unknown };
+            // toolUseId intentionally absent — server assigns a UUID in the agentic loop
             yield {
               type: "tool_call",
               toolName: fc.name ?? "",
