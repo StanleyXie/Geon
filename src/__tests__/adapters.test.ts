@@ -21,10 +21,28 @@ describe("toAnthropicMessages", () => {
     expect(result[0]!.role).toBe("user");
   });
 
-  it("excludes tool_call and tool_result messages", () => {
-    const msgs = [msg("user", "Do it"), msg("tool_call", "{}"), msg("tool_result", "done"), msg("assistant", "Done")];
+  it("converts tool_call to assistant message with tool_use block", () => {
+    const msgs = [msg("tool_call", "Read(src/utils.ts)")];
+    msgs[0]!.metadata = { toolUseId: "id-1", toolName: "Read", toolInput: { path: "src/utils.ts" } };
     const result = toAnthropicMessages(msgs);
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.role).toBe("assistant");
+    const content = result[0]!.content as Array<{ type: string; id?: string; name?: string }>;
+    expect(content[0]!.type).toBe("tool_use");
+    expect(content[0]!.id).toBe("id-1");
+    expect(content[0]!.name).toBe("Read");
+  });
+
+  it("converts tool_result to user message with tool_result block", () => {
+    const msgs = [msg("tool_result", "file contents here")];
+    msgs[0]!.metadata = { toolUseId: "id-1", toolName: "Read", isError: false };
+    const result = toAnthropicMessages(msgs);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.role).toBe("user");
+    const content = result[0]!.content as Array<{ type: string; tool_use_id?: string; content?: string }>;
+    expect(content[0]!.type).toBe("tool_result");
+    expect(content[0]!.tool_use_id).toBe("id-1");
+    expect(content[0]!.content).toBe("file contents here");
   });
 });
 
@@ -40,6 +58,26 @@ describe("toGeminiContents", () => {
     const msgs = [msg("system", "Be helpful"), msg("user", "Hello")];
     const result = toGeminiContents(msgs);
     expect(result).toHaveLength(1);
+  });
+
+  it("converts tool_call to model message with functionCall part", () => {
+    const msgs = [msg("tool_call", "Read(src/utils.ts)")];
+    msgs[0]!.metadata = { toolName: "Read", toolInput: { path: "src/utils.ts" } };
+    const result = toGeminiContents(msgs);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.role).toBe("model");
+    expect(result[0]!.parts[0]).toHaveProperty("functionCall");
+    const fc = result[0]!.parts[0]!.functionCall as { name: string; args: unknown };
+    expect(fc.name).toBe("Read");
+  });
+
+  it("converts tool_result to user message with functionResponse part", () => {
+    const msgs = [msg("tool_result", "file contents")];
+    msgs[0]!.metadata = { toolName: "Read" };
+    const result = toGeminiContents(msgs);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.role).toBe("user");
+    expect(result[0]!.parts[0]).toHaveProperty("functionResponse");
   });
 });
 

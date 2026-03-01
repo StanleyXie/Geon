@@ -19,7 +19,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { CanonicalMessage } from "../context/types.js";
 import type { NormalizedChunk, ProviderAdapter } from "./types.js";
-import { extractSystemPrompt } from "./types.js";
+import { extractSystemPrompt, toAnthropicMessages } from "./types.js";
 
 function createClient(): Anthropic {
   const apiKey = process.env["ANTIGRAVITY_API_KEY"];
@@ -51,10 +51,7 @@ export class ProxyClaudeAdapter implements ProviderAdapter {
     const client = createClient();
 
     const sysPrompt = systemPrompt || extractSystemPrompt(messages) || undefined;
-    // Build typed MessageParam[] directly — avoids the looser AnthropicMessage type
-    const anthropicMessages: Anthropic.MessageParam[] = messages
-      .filter(m => m.role === "user" || m.role === "assistant")
-      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+    const anthropicMessages = toAnthropicMessages(messages);
 
     let inputTokens = 0;
     let outputTokens = 0;

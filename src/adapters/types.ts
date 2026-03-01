@@ -1,9 +1,5 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import type { CanonicalMessage } from "../context/types.js";
-
-export interface AnthropicMessage {
-  role: "user" | "assistant";
-  content: string | Array<{ type: string; [key: string]: unknown }>;
-}
 
 export interface GeminiContent {
   role: "user" | "model";
@@ -15,6 +11,7 @@ export interface NormalizedChunk {
   text?: string;
   toolName?: string;
   toolInput?: unknown;
+  toolUseId?: string;
   toolResult?: unknown;
   isError?: boolean;
   inputTokens?: number;
@@ -35,19 +32,53 @@ export interface ProviderAdapter {
 
 // ─── Format converters ──────────────────────────────────────────────────────
 
-export function toAnthropicMessages(messages: CanonicalMessage[]): AnthropicMessage[] {
-  return messages
-    .filter(m => m.role === "user" || m.role === "assistant")
-    .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+export function toAnthropicMessages(messages: CanonicalMessage[]): Anthropic.MessageParam[] {
+  const result: Anthropic.MessageParam[] = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      result.push({ role: "user", content: m.content });
+    } else if (m.role === "assistant") {
+      result.push({ role: "assistant", content: m.content });
+    } else if (m.role === "tool_call") {
+      const meta = m.metadata as { toolUseId: string; toolName: string; toolInput: unknown };
+      result.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: meta.toolUseId, name: meta.toolName, input: meta.toolInput as Record<string, unknown> }],
+      });
+    } else if (m.role === "tool_result") {
+      const meta = m.metadata as { toolUseId: string; isError?: boolean };
+      result.push({
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: meta.toolUseId,
+          content: m.content,
+          ...(meta.isError ? { is_error: true } : {}),
+        }],
+      });
+    }
+    // system messages handled separately via extractSystemPrompt
+  }
+  return result;
 }
 
 export function toGeminiContents(messages: CanonicalMessage[]): GeminiContent[] {
-  return messages
-    .filter(m => m.role === "user" || m.role === "assistant")
-    .map(m => ({
-      role: m.role === "assistant" ? "model" : "user" as const,
-      parts: [{ text: m.content }],
-    }));
+  const result: GeminiContent[] = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      result.push({ role: "user", parts: [{ text: m.content }] });
+    } else if (m.role === "assistant") {
+      result.push({ role: "model", parts: [{ text: m.content }] });
+    } else if (m.role === "tool_call") {
+      const meta = m.metadata as { toolName: string; toolInput: unknown };
+      result.push({ role: "model", parts: [{ functionCall: { name: meta.toolName, args: meta.toolInput } }] });
+    } else if (m.role === "tool_result") {
+      const meta = m.metadata as { toolName: string };
+      result.push({ role: "user", parts: [{ functionResponse: { name: meta.toolName, response: { output: m.content } } }] });
+    }
+    // system messages handled separately via extractSystemPrompt
+  }
+  return result;
 }
 
 export function extractSystemPrompt(messages: CanonicalMessage[]): string {
