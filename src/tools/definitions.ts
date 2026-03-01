@@ -3,12 +3,12 @@ export interface ToolDefinition {
   description: string;
   inputSchema: {
     type: "object";
-    properties: Record<string, { type: string; description: string; [k: string]: unknown }>;
+    properties: Record<string, { type: "string" | "number" | "boolean" | "array" | "object" | "null"; description: string; [k: string]: unknown }>;
     required: string[];
   };
 }
 
-export const BUILT_IN_TOOLS: ToolDefinition[] = [
+export const BUILT_IN_TOOLS: readonly ToolDefinition[] = [
   {
     name: "Read",
     description: "Read the contents of a file. Returns the file content with line count. Use offset and limit to read a specific range of lines.",
