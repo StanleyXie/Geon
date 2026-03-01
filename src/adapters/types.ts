@@ -40,13 +40,15 @@ export function toAnthropicMessages(messages: CanonicalMessage[]): Anthropic.Mes
     } else if (m.role === "assistant") {
       result.push({ role: "assistant", content: m.content });
     } else if (m.role === "tool_call") {
-      const meta = m.metadata as { toolUseId: string; toolName: string; toolInput: unknown };
+      const meta = m.metadata as { toolUseId?: string; toolName?: string; toolInput?: unknown };
+      if (!meta.toolUseId || !meta.toolName) throw new Error(`tool_call message missing toolUseId or toolName in metadata`);
       result.push({
         role: "assistant",
-        content: [{ type: "tool_use", id: meta.toolUseId, name: meta.toolName, input: meta.toolInput as Record<string, unknown> }],
+        content: [{ type: "tool_use", id: meta.toolUseId, name: meta.toolName, input: (meta.toolInput ?? {}) as Record<string, unknown> }],
       });
     } else if (m.role === "tool_result") {
-      const meta = m.metadata as { toolUseId: string; isError?: boolean };
+      const meta = m.metadata as { toolUseId?: string; isError?: boolean };
+      if (!meta.toolUseId) throw new Error(`tool_result message missing toolUseId in metadata`);
       result.push({
         role: "user",
         content: [{
@@ -70,10 +72,12 @@ export function toGeminiContents(messages: CanonicalMessage[]): GeminiContent[] 
     } else if (m.role === "assistant") {
       result.push({ role: "model", parts: [{ text: m.content }] });
     } else if (m.role === "tool_call") {
-      const meta = m.metadata as { toolName: string; toolInput: unknown };
+      const meta = m.metadata as { toolName?: string; toolInput?: unknown };
+      if (!meta.toolName) throw new Error(`tool_call message missing toolName in metadata`);
       result.push({ role: "model", parts: [{ functionCall: { name: meta.toolName, args: meta.toolInput } }] });
     } else if (m.role === "tool_result") {
-      const meta = m.metadata as { toolName: string };
+      const meta = m.metadata as { toolName?: string };
+      if (!meta.toolName) throw new Error(`tool_result message missing toolName in metadata`);
       result.push({ role: "user", parts: [{ functionResponse: { name: meta.toolName, response: { output: m.content } } }] });
     }
     // system messages handled separately via extractSystemPrompt

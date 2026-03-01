@@ -44,6 +44,23 @@ describe("toAnthropicMessages", () => {
     expect(content[0]!.tool_use_id).toBe("id-1");
     expect(content[0]!.content).toBe("file contents here");
   });
+
+  it("handles a full tool-call turn sequence", () => {
+    const msgs = [
+      msg("user", "read file"),
+      msg("tool_call", "Read(a.ts)"),
+      msg("tool_result", "contents"),
+      msg("assistant", "Here is the content."),
+    ];
+    msgs[1]!.metadata = { toolUseId: "id-1", toolName: "Read", toolInput: { path: "a.ts" } };
+    msgs[2]!.metadata = { toolUseId: "id-1", isError: false };
+    const result = toAnthropicMessages(msgs);
+    expect(result).toHaveLength(4);
+    expect(result[0]!.role).toBe("user");
+    expect(result[1]!.role).toBe("assistant");
+    expect(result[2]!.role).toBe("user");
+    expect(result[3]!.role).toBe("assistant");
+  });
 });
 
 describe("toGeminiContents", () => {
