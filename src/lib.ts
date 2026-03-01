@@ -1,0 +1,12 @@
+export { ContextGraph, ContextNode } from "./context/graph.js";
+export { ClientContextStore } from "./context/layer1.js";
+export { ProviderCacheTracker } from "./context/layer2.js";
+export { KVCacheEstimator } from "./context/layer3.js";
+export { ModelSwitchAnalyzer } from "./context/switch-analyzer.js";
+export { BudgetManager, PruningStrategy } from "./context/budget.js";
+export { StrategyEngine } from "./context/strategy.js";
+export { SessionManager } from "./session/manager.js";
+export { getModelSpec, MODEL_SPECS, PRICING } from "./context/model-registry.js";
+export type * from "./context/types.js";
+export type * from "./session/types.js";
+export type * from "./adapters/types.js";

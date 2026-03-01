@@ -1,0 +1,28 @@
+{
+  "name": "@zed-plugins/geon",
+  "version": "0.1.0",
+  "description": "GEON — multi-provider ACP agent for Claude and Gemini with L1/L2/L3 context pipeline",
+  "type": "module",
+  "bin": {
+    "geon": "dist/geon"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --compile --outfile dist/geon --target bun --minify",
+    "build:lib": "bun build src/lib.ts --outfile dist/lib.js --target bun",
+    "dev": "bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.14.1",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@google/genai": "^1.0.0",
+    "glob": "^11.0.0",
+    "gpt-tokenizer": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}
