@@ -18,6 +18,8 @@ import { GoogleGenAI, type Content } from "@google/genai";
 import type { CanonicalMessage } from "../context/types.js";
 import type { NormalizedChunk, ProviderAdapter } from "./types.js";
 import { toGeminiContents, extractSystemPrompt } from "./types.js";
+import { BUILT_IN_TOOLS } from "../tools/definitions.js";
+import { toGeminiTools } from "../tools/converters.js";
 
 function createClient(): GoogleGenAI {
   const apiKey =
@@ -48,7 +50,7 @@ export class GeminiAdapter implements ProviderAdapter {
   async *stream(
     messages: CanonicalMessage[],
     systemPrompt: string,
-    _tools: unknown[],
+    tools: unknown[],
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk> {
     const client = createClient();
@@ -69,11 +71,14 @@ export class GeminiAdapter implements ProviderAdapter {
     let cacheHitTokens = 0;
 
     try {
+      const geminiTools = toGeminiTools(BUILT_IN_TOOLS);
+
       const stream = await client.models.generateContentStream({
         model: this.modelId,
         contents,
         config: {
           ...(sysInstruction ? { systemInstruction: sysInstruction } : {}),
+          tools: [{ functionDeclarations: geminiTools }],
           abortSignal: signal,
         },
       });
@@ -81,13 +86,18 @@ export class GeminiAdapter implements ProviderAdapter {
       for await (const chunk of stream) {
         if (signal.aborted) break;
 
-        // Extract text from first candidate's parts.
-        const text = (chunk.candidates?.[0]?.content?.parts ?? [])
-          .map((p) => ("text" in p ? (p.text ?? "") : ""))
-          .join("");
-
-        if (text) {
-          yield { type: "text", text };
+        const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+        for (const p of parts) {
+          if ("text" in p && p.text) {
+            yield { type: "text", text: p.text };
+          } else if ("functionCall" in p && p.functionCall) {
+            const fc = p.functionCall as { name?: string; args?: unknown };
+            yield {
+              type: "tool_call",
+              toolName: fc.name ?? "",
+              toolInput: fc.args ?? {},
+            };
+          }
         }
 
         // Accumulate usage from each chunk (Gemini reports running totals per chunk).
