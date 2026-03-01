@@ -31,12 +31,23 @@ describe("toGeminiTools", () => {
     expect(result).toHaveLength(7);
   });
 
-  it("produces name, description, parameters fields", () => {
+  it("produces name, description, parametersJsonSchema fields", () => {
     const result = toGeminiTools(BUILT_IN_TOOLS);
     for (const t of result) {
       expect(typeof t.name).toBe("string");
       expect(typeof t.description).toBe("string");
-      expect(t.parameters.type).toBe("object");
+      expect((t.parametersJsonSchema as { type: string }).type).toBe("object");
     }
+  });
+
+  it("Read tool parametersJsonSchema has properties.path and required includes path", () => {
+    const result = toGeminiTools(BUILT_IN_TOOLS);
+    const read = result.find(t => t.name === "Read")!;
+    const schema = read.parametersJsonSchema as {
+      properties: Record<string, unknown>;
+      required?: string[];
+    };
+    expect(schema.properties).toHaveProperty("path");
+    expect(schema.required).toContain("path");
   });
 });
