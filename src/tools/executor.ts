@@ -25,7 +25,8 @@ export async function executeToolCall(
 }
 
 function resolvePath(p: unknown, cwd: string): string {
-  const s = String(p ?? "");
+  if (p == null || p === "") return cwd;
+  const s = String(p);
   return path.isAbsolute(s) ? s : path.resolve(cwd, s);
 }
 
@@ -69,7 +70,12 @@ async function execBash(input: Record<string, unknown>, cwd: string): Promise<st
     return (stdout + (stderr ? `\nstderr: ${stderr}` : "")).trim() || "(no output)";
   } catch (err: unknown) {
     const e = err as { stdout?: string; stderr?: string; message?: string };
-    return `Error: ${(e.stderr ?? e.message ?? String(err)).trim()}`;
+    const parts = [
+      `Error: ${(e.message ?? String(err)).trim()}`,
+      e.stdout?.trim() ? `stdout: ${e.stdout.trim()}` : "",
+      e.stderr?.trim() ? `stderr: ${e.stderr.trim()}` : "",
+    ].filter(Boolean);
+    return parts.join("\n");
   }
 }
 
@@ -103,7 +109,8 @@ async function execGrep(input: Record<string, unknown>, cwd: string): Promise<st
 }
 
 async function execLs(input: Record<string, unknown>, cwd: string): Promise<string> {
-  const dirPath = resolvePath(input["path"] ?? ".", cwd);
+  if (!input["path"]) throw new Error("LS requires path");
+  const dirPath = resolvePath(input["path"], cwd);
   const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
   if (entries.length === 0) return "(empty directory)";
   return entries

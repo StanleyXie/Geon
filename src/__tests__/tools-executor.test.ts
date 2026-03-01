@@ -132,6 +132,11 @@ describe("LS", () => {
     expect(result).toContain("file.txt");
     expect(result).toContain("subdir/");
   });
+
+  it("throws when path is missing", async () => {
+    fresh();
+    await expect(executeToolCall("LS", {}, tmpDir)).rejects.toThrow("requires path");
+  });
 });
 
 describe("unknown tool", () => {
