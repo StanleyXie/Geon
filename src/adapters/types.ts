@@ -25,7 +25,7 @@ export interface ProviderAdapter {
   stream(
     messages: CanonicalMessage[],
     systemPrompt: string,
-    tools: unknown[],
+    tools: readonly unknown[],
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk>;
 }

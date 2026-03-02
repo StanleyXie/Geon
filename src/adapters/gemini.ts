@@ -50,7 +50,7 @@ export class GeminiAdapter implements ProviderAdapter {
   async *stream(
     messages: CanonicalMessage[],
     systemPrompt: string,
-    _tools: unknown[],  // reserved; GeminiAdapter always uses BUILT_IN_TOOLS
+    _tools: readonly unknown[],  // reserved; GeminiAdapter always uses BUILT_IN_TOOLS
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk> {
     const client = createClient();

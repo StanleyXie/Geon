@@ -31,6 +31,8 @@ const DEFAULT_MODEL = "gemini-2.5-flash";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const MAX_TOOL_ROUNDS = 20;
+
 function assertValidSessionId(sessionId: string): void {
   if (!UUID_RE.test(sessionId)) {
     throw new Error("Invalid session ID");
@@ -283,17 +285,30 @@ export class UniversalAcpAgent implements Agent {
     let inputTokens = 0;
     let outputTokens = 0;
     let cacheHitTokens = 0;
-    let assistantText = "";   // final round's text only (for L1 + JSONL)
+    let assistantText = "";   // final round's terminal text (preamble text from earlier rounds is flushed inline)
+    let roundCount = 0;
 
     try {
       while (!signal.aborted) {
         const payload = node.engine.prepare();
         const adapter = makeAdapter(node.store.modelId);
+        roundCount++;
+        if (roundCount > MAX_TOOL_ROUNDS) {
+          // Safety: prevent runaway loops from misbehaving models
+          await this.conn.sessionUpdate({
+            sessionId: req.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "\n\n⚠️ Tool call limit reached (max rounds exceeded).\n" },
+            },
+          });
+          break;
+        }
         let toolCallsMadeThisRound = false;
         let roundText = "";   // text emitted by the model in this round
 
         for await (const chunk of transformStream(
-          adapter.stream(payload.messages, "", [...BUILT_IN_TOOLS], signal),
+          adapter.stream(payload.messages, "", BUILT_IN_TOOLS, signal),
         )) {
           if (signal.aborted) break;
 
@@ -514,7 +529,7 @@ export class UniversalAcpAgent implements Agent {
         node.addMessage(role, ml.content);
       } else if (line.type === "tool_call") {
         const tl = line as ToolCallLine;
-        node.addMessage("tool_call", `${tl.toolName}(${JSON.stringify(tl.input)})`, {
+        node.addMessage("tool_call", `${tl.toolName}(${formatToolLabel(tl.toolName, tl.input)})`, {
           toolUseId: tl.uuid,
           toolName: tl.toolName,
           toolInput: tl.input,
@@ -610,7 +625,7 @@ export class UniversalAcpAgent implements Agent {
         node.addMessage(role, ml.content);
       } else if (line.type === "tool_call") {
         const tl = line as ToolCallLine;
-        node.addMessage("tool_call", `${tl.toolName}(${JSON.stringify(tl.input)})`, {
+        node.addMessage("tool_call", `${tl.toolName}(${formatToolLabel(tl.toolName, tl.input)})`, {
           toolUseId: tl.uuid,
           toolName: tl.toolName,
           toolInput: tl.input,

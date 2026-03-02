@@ -59,7 +59,7 @@ export class ClaudeAdapter implements ProviderAdapter {
   async *stream(
     messages: CanonicalMessage[],
     systemPrompt: string,
-    _tools: unknown[],
+    _tools: readonly unknown[],
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk> {
     // Extract latest user message. If none found, fall back to empty string.

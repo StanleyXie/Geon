@@ -47,7 +47,7 @@ export class ProxyClaudeAdapter implements ProviderAdapter {
   async *stream(
     messages: CanonicalMessage[],
     systemPrompt: string,
-    _tools: unknown[],   // tool definitions forwarded via BUILT_IN_TOOLS in Task 8
+    _tools: readonly unknown[],   // tool definitions forwarded via BUILT_IN_TOOLS in Task 8
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk> {
     const client = createClient();
