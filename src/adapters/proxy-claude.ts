@@ -20,6 +20,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { CanonicalMessage } from "../context/types.js";
 import type { NormalizedChunk, ProviderAdapter } from "./types.js";
 import { extractSystemPrompt, toAnthropicMessages } from "./types.js";
+import { toAnthropicTools } from "../tools/converters.js";
+import { BUILT_IN_TOOLS } from "../tools/definitions.js";
 
 function createClient(): Anthropic {
   const apiKey = process.env["ANTIGRAVITY_API_KEY"];
@@ -52,6 +54,13 @@ export class ProxyClaudeAdapter implements ProviderAdapter {
 
     const sysPrompt = systemPrompt || extractSystemPrompt(messages) || undefined;
     const anthropicMessages = toAnthropicMessages(messages);
+    const anthropicTools = toAnthropicTools(BUILT_IN_TOOLS);
+
+    // State for accumulating tool_use blocks
+    let currentToolId = "";
+    let currentToolName = "";
+    let currentToolInputBuffer = "";
+    let isInToolUseBlock = false;
 
     let inputTokens = 0;
     let outputTokens = 0;
@@ -63,6 +72,7 @@ export class ProxyClaudeAdapter implements ProviderAdapter {
         max_tokens: 32768,
         ...(sysPrompt ? { system: sysPrompt } : {}),
         messages: anthropicMessages,
+        tools: anthropicTools,
         stream: true,
       });
 
@@ -70,11 +80,32 @@ export class ProxyClaudeAdapter implements ProviderAdapter {
       for await (const event of stream) {
         if (signal.aborted) break;
 
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
-          yield { type: "text", text: event.delta.text };
+        if (event.type === "content_block_start") {
+          const block = event.content_block;
+          if (block.type === "tool_use") {
+            isInToolUseBlock = true;
+            currentToolId = block.id;
+            currentToolName = block.name;
+            currentToolInputBuffer = "";
+          } else {
+            isInToolUseBlock = false;
+          }
+        } else if (event.type === "content_block_delta") {
+          if (isInToolUseBlock && event.delta.type === "input_json_delta") {
+            currentToolInputBuffer += event.delta.partial_json;
+          } else if (!isInToolUseBlock && event.delta.type === "text_delta") {
+            yield { type: "text", text: event.delta.text };
+          }
+        } else if (event.type === "content_block_stop" && isInToolUseBlock) {
+          let toolInput: unknown = {};
+          try { toolInput = JSON.parse(currentToolInputBuffer); } catch { /* empty input */ }
+          yield {
+            type: "tool_call",
+            toolName: currentToolName,
+            toolInput,
+            toolUseId: currentToolId,
+          };
+          isInToolUseBlock = false;
         } else if (event.type === "message_delta" && event.usage) {
           outputTokens = event.usage.output_tokens;
         } else if (event.type === "message_start" && event.message.usage) {
