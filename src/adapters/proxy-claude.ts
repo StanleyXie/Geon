@@ -98,7 +98,15 @@ export class ProxyClaudeAdapter implements ProviderAdapter {
           }
         } else if (event.type === "content_block_stop" && isInToolUseBlock) {
           let toolInput: unknown = {};
-          try { toolInput = JSON.parse(currentToolInputBuffer); } catch { /* empty input */ }
+          if (currentToolInputBuffer.trim() !== "") {
+            try {
+              toolInput = JSON.parse(currentToolInputBuffer);
+            } catch (e) {
+              throw new Error(
+                `ProxyClaudeAdapter: failed to parse tool input for "${currentToolName}": ${(e as Error).message}`,
+              );
+            }
+          }
           yield {
             type: "tool_call",
             toolName: currentToolName,
