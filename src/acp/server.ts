@@ -15,7 +15,10 @@ import { ContextGraph } from "../context/graph.js";
 import { MODEL_SPECS } from "../context/model-registry.js";
 import { ModelSwitchAnalyzer } from "../context/switch-analyzer.js";
 import { SessionManager } from "../session/manager.js";
-import type { HeaderLine, MessageLine, ModelSwitchLine, UsageLine } from "../session/types.js";
+import { randomUUID } from "node:crypto";
+import type { HeaderLine, MessageLine, ModelSwitchLine, ToolCallLine, UsageLine } from "../session/types.js";
+import { BUILT_IN_TOOLS } from "../tools/definitions.js";
+import { executeToolCall } from "../tools/executor.js";
 import { ClaudeAdapter } from "../adapters/claude.js";
 import { GeminiAdapter } from "../adapters/gemini.js";
 import { ProxyClaudeAdapter } from "../adapters/proxy-claude.js";
@@ -69,6 +72,20 @@ function transformToolCallXml(text: string): string {
     (_m, body: string) => renderToolBlock("tool_response", body),
   );
   return out;
+}
+
+function formatToolLabel(toolName: string, toolInput: unknown): string {
+  const input = toolInput as Record<string, unknown> | undefined;
+  switch (toolName) {
+    case "Read":
+    case "Write":
+    case "Edit":  return String(input?.["path"] ?? "");
+    case "Bash":  return String(input?.["command"] ?? "");
+    case "Glob":  return String(input?.["pattern"] ?? "");
+    case "Grep":  return String(input?.["pattern"] ?? "");
+    case "LS":    return String(input?.["path"] ?? "");
+    default:      return JSON.stringify(toolInput ?? {});
+  }
 }
 
 import type { NormalizedChunk } from "../adapters/types.js";
@@ -261,58 +278,134 @@ export class UniversalAcpAgent implements Agent {
       parts: [{ text: userText }],
     });
 
-    // Prepare payload via StrategyEngine
-    const payload = node.engine.prepare();
-    const adapter = makeAdapter(node.store.modelId);
-
-    // Stream from provider through line-buffered XML transformer.
-    // Normal lines flow to client immediately; <tool_call>/<tool_response> blocks
-    // are held until the closing tag arrives, then emitted as markdown.
+    // Agentic loop: repeat until the model gives a response with no tool calls
     let fullText = "";
     let inputTokens = 0;
     let outputTokens = 0;
     let cacheHitTokens = 0;
+    let assistantText = "";   // final round's text only (for L1 + JSONL)
 
     try {
-      for await (const chunk of transformStream(
-        adapter.stream(payload.messages, "", [], signal),
-      )) {
-        if (signal.aborted) break;
+      while (!signal.aborted) {
+        const payload = node.engine.prepare();
+        const adapter = makeAdapter(node.store.modelId);
+        let toolCallsMadeThisRound = false;
+        let roundText = "";   // text emitted by the model in this round
 
-        if (chunk.type === "text" && chunk.text) {
-          fullText += chunk.text;
-          await this.conn.sessionUpdate({
-            sessionId: req.sessionId,
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: chunk.text },
-            },
-          });
-        } else if (chunk.type === "done") {
-          inputTokens = chunk.inputTokens ?? 0;
-          outputTokens = chunk.outputTokens ?? 0;
-          cacheHitTokens = chunk.cacheHitTokens ?? 0;
+        for await (const chunk of transformStream(
+          adapter.stream(payload.messages, "", [...BUILT_IN_TOOLS], signal),
+        )) {
+          if (signal.aborted) break;
+
+          if (chunk.type === "text" && chunk.text) {
+            roundText += chunk.text;
+            fullText += chunk.text;
+            await this.conn.sessionUpdate({
+              sessionId: req.sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: chunk.text },
+              },
+            });
+          } else if (chunk.type === "tool_call" && chunk.toolName) {
+            toolCallsMadeThisRound = true;
+            const toolUseId = chunk.toolUseId ?? randomUUID();
+            const label = `\n\n**[${chunk.toolName}]** \`${formatToolLabel(chunk.toolName, chunk.toolInput)}\`\n`;
+            fullText += label;
+            await this.conn.sessionUpdate({
+              sessionId: req.sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: label },
+              },
+            });
+
+            // Execute the tool
+            let resultText: string;
+            let isError = false;
+            try {
+              resultText = await executeToolCall(
+                chunk.toolName,
+                chunk.toolInput as Record<string, unknown>,
+                state.cwd,
+              );
+            } catch (err: unknown) {
+              resultText = `Error: ${(err as Error).message}`;
+              isError = true;
+            }
+
+            // Emit truncated result preview (first 5 lines as blockquote)
+            const preview = resultText.split("\n").slice(0, 5).map(l => `> ${l}`).join("\n") + "\n";
+            fullText += preview;
+            await this.conn.sessionUpdate({
+              sessionId: req.sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: preview },
+              },
+            });
+
+            // If model emitted text before this tool call, add it as assistant message
+            if (roundText) {
+              node.addMessage("assistant", roundText);
+              await state.sessionManager.appendMessage(req.sessionId, {
+                role: "model",
+                content: roundText,
+                parts: [{ text: roundText }],
+              });
+              roundText = "";
+            }
+
+            // Add tool_call and tool_result to L1
+            const toolLabel = `${chunk.toolName}(${formatToolLabel(chunk.toolName, chunk.toolInput)})`;
+            node.addMessage("tool_call", toolLabel, {
+              toolUseId,
+              toolName: chunk.toolName,
+              toolInput: chunk.toolInput,
+            });
+            node.addMessage("tool_result", resultText, {
+              toolUseId,
+              toolName: chunk.toolName,
+              isError,
+            });
+
+            // Persist tool_call line to JSONL
+            const toolCallLine: ToolCallLine = {
+              type: "tool_call",
+              toolName: chunk.toolName,
+              input: chunk.toolInput,
+              result: resultText,
+              isError,
+              uuid: toolUseId,
+              timestamp: Date.now(),
+            };
+            await state.sessionManager.appendLine(req.sessionId, toolCallLine);
+
+          } else if (chunk.type === "done") {
+            inputTokens += chunk.inputTokens ?? 0;
+            outputTokens += chunk.outputTokens ?? 0;
+            cacheHitTokens += chunk.cacheHitTokens ?? 0;
+          }
+        }
+
+        if (!toolCallsMadeThisRound || signal.aborted) {
+          assistantText = roundText;   // final model text
+          break;
         }
       }
     } catch (err: unknown) {
-      if (signal.aborted) {
-        return { stopReason: "cancelled" };
-      }
+      if (signal.aborted) return { stopReason: "cancelled" };
       throw err;
     }
 
-    if (signal.aborted) {
-      return { stopReason: "cancelled" };
-    }
+    if (signal.aborted) return { stopReason: "cancelled" };
 
-    // Add assistant response to L1
-    node.addMessage("assistant", fullText);
-
-    // Persist assistant message to JSONL
+    // Add final assistant response to L1 and JSONL
+    node.addMessage("assistant", assistantText);
     await state.sessionManager.appendMessage(req.sessionId, {
       role: "model",
-      content: fullText,
-      parts: [{ text: fullText }],
+      content: assistantText,
+      parts: [{ text: assistantText }],
     });
 
     // Accumulate session token totals
@@ -343,6 +436,7 @@ export class UniversalAcpAgent implements Agent {
     });
 
     // Append inline token stats as trailing text chunk
+    // Use fullText for code-block detection since it includes tool labels
     const fmt = (n: number) => n.toLocaleString("en-US");
     const hitPct = (hit: number, total: number) =>
       total > 0 && hit > 0 ? ` (${Math.round((hit / total) * 100)}%)` : "";
@@ -352,9 +446,6 @@ export class UniversalAcpAgent implements Agent {
     const sessCache = state.sessionCacheHitTokens > 0
       ? `${fmt(state.sessionCacheHitTokens)}⚡${hitPct(state.sessionCacheHitTokens, state.sessionInputTokens)}`
       : "—";
-    // If the response was truncated mid-code-block, close it before the stats block.
-    // Parse line-by-line: a fenced code block opens/closes only when ``` starts a line.
-    // Simple count is unreliable when ``` appears in inline text (e.g., markdown explanations).
     const openCodeBlock = (() => {
       let inside = false;
       for (const line of fullText.split("\n")) {
@@ -421,6 +512,18 @@ export class UniversalAcpAgent implements Agent {
         const role: "user" | "assistant" =
           ml.role === "model" ? "assistant" : "user";
         node.addMessage(role, ml.content);
+      } else if (line.type === "tool_call") {
+        const tl = line as ToolCallLine;
+        node.addMessage("tool_call", `${tl.toolName}(${JSON.stringify(tl.input)})`, {
+          toolUseId: tl.uuid,
+          toolName: tl.toolName,
+          toolInput: tl.input,
+        });
+        node.addMessage("tool_result", String(tl.result ?? ""), {
+          toolUseId: tl.uuid,
+          toolName: tl.toolName,
+          isError: tl.isError,
+        });
       }
     }
 
@@ -505,6 +608,18 @@ export class UniversalAcpAgent implements Agent {
         const role: "user" | "assistant" =
           ml.role === "model" ? "assistant" : "user";
         node.addMessage(role, ml.content);
+      } else if (line.type === "tool_call") {
+        const tl = line as ToolCallLine;
+        node.addMessage("tool_call", `${tl.toolName}(${JSON.stringify(tl.input)})`, {
+          toolUseId: tl.uuid,
+          toolName: tl.toolName,
+          toolInput: tl.input,
+        });
+        node.addMessage("tool_result", String(tl.result ?? ""), {
+          toolUseId: tl.uuid,
+          toolName: tl.toolName,
+          isError: tl.isError,
+        });
       }
     }
 
