@@ -76,7 +76,7 @@ function transformToolCallXml(text: string): string {
   return out;
 }
 
-function formatToolLabel(toolName: string, toolInput: unknown): string {
+export function formatToolLabel(toolName: string, toolInput: unknown): string {
   const input = toolInput as Record<string, unknown> | undefined;
   switch (toolName) {
     case "Read":
@@ -290,8 +290,6 @@ export class UniversalAcpAgent implements Agent {
 
     try {
       while (!signal.aborted) {
-        const payload = node.engine.prepare();
-        const adapter = makeAdapter(node.store.modelId);
         roundCount++;
         if (roundCount > MAX_TOOL_ROUNDS) {
           // Safety: prevent runaway loops from misbehaving models
@@ -299,11 +297,13 @@ export class UniversalAcpAgent implements Agent {
             sessionId: req.sessionId,
             update: {
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "\n\n⚠️ Tool call limit reached (max rounds exceeded).\n" },
+              content: { type: "text", text: "\n\n[WARNING] Tool call limit reached (max rounds exceeded).\n" },
             },
           });
           break;
         }
+        const payload = node.engine.prepare();
+        const adapter = makeAdapter(node.store.modelId);
         let toolCallsMadeThisRound = false;
         let roundText = "";   // text emitted by the model in this round
 
