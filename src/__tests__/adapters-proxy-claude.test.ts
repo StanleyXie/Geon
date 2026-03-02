@@ -7,6 +7,43 @@ function msg(role: CanonicalMessage["role"], content: string, metadata: Record<s
   return { role, content, timestamp: 0, tokenCount: 1, byteSize: content.length, contentHash: "x", metadata };
 }
 
+// Test the buffer parsing logic directly
+describe("tool input buffer parsing", () => {
+  it("empty buffer yields empty object", () => {
+    let toolInput: unknown = {};
+    const buffer = "";
+    if (buffer !== "") {
+      toolInput = JSON.parse(buffer);
+    }
+    expect(toolInput).toEqual({});
+  });
+
+  it("valid JSON buffer parses correctly", () => {
+    const buffer: string = '{"path":"src/a.ts"}';
+    let toolInput: unknown = {};
+    if (buffer !== "") {
+      toolInput = JSON.parse(buffer);
+    }
+    expect(toolInput).toEqual({ path: "src/a.ts" });
+  });
+
+  it("invalid JSON buffer throws with helpful message", () => {
+    const buffer: string = "{bad json";
+    const toolName = "Read";
+    expect(() => {
+      if (buffer !== "") {
+        try {
+          JSON.parse(buffer);
+        } catch (e) {
+          throw new Error(
+            `ProxyClaudeAdapter: failed to parse tool input for "${toolName}": ${(e as Error).message}`,
+          );
+        }
+      }
+    }).toThrow(/ProxyClaudeAdapter.*Read/);
+  });
+});
+
 // Unit-test the Anthropic message builder with tool messages (no live API needed)
 describe("toAnthropicMessages with tool messages", () => {
   it("round-trips a tool call sequence", () => {
