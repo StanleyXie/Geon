@@ -18,12 +18,19 @@ describe("toGeminiContents with tool messages", () => {
     ];
     const contents = toGeminiContents(msgs);
     expect(contents).toHaveLength(4);
-    expect(contents[0]!.role).toBe("user");
+  });
+
+  it("groups text thinking + tool_call into one turn", () => {
+    const msgs = [
+      msg("user", "do something"),
+      msg("assistant", "I will run a command."),
+      msg("tool_call", "Bash(ls)", { toolName: "Bash", toolInput: { command: "ls" } }),
+    ];
+    const contents = toGeminiContents(msgs);
+    expect(contents).toHaveLength(2); // 1 user, 1 model (with 2 parts)
     expect(contents[1]!.role).toBe("model");
-    expect(contents[1]!.parts[0]).toHaveProperty("functionCall");
-    expect(contents[2]!.role).toBe("user");
-    expect(contents[2]!.parts[0]).toHaveProperty("functionResponse");
-    expect(contents[3]!.role).toBe("model");
-    expect(contents[3]!.parts[0]).toHaveProperty("text");
+    expect(contents[1]!.parts).toHaveLength(2);
+    expect(contents[1]!.parts[0]).toHaveProperty("text");
+    expect(contents[1]!.parts[1]).toHaveProperty("functionCall");
   });
 });

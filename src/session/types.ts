@@ -13,6 +13,7 @@ export interface MessageLine {
   role: "user" | "model";
   parts: Array<{ text?: string; functionCall?: unknown; functionResponse?: unknown }>;
   content: string;
+  thoughtSignature?: string;
   uuid: string;
   parentUuid: string | null;
   timestamp: number;
@@ -23,6 +24,7 @@ export interface ToolCallLine {
   toolName: string;
   input: unknown;
   result: unknown;
+  thoughtSignature?: string;
   isError: boolean;
   uuid: string;
   timestamp: number;
@@ -51,5 +53,6 @@ export interface SessionSummary {
   cwd: string;
   createdAt: number;
   firstMessage: string;
+  updatedAt: number;
   parentSessionId: string | null;
 }

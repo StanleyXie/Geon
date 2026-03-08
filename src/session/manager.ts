@@ -25,7 +25,7 @@ export class SessionManager {
 
   constructor(opts: SessionManagerOptions = {}) {
     this._configDir = opts.configDir ?? path.join(os.homedir(), ".geon");
-    this._cwd = opts.cwd ?? process.cwd();
+    this._cwd = path.resolve(opts.cwd ?? process.cwd());
   }
 
   private _projectDir(): string {
@@ -42,8 +42,7 @@ export class SessionManager {
     return path.join(this._projectDir(), `${sessionId}.usage.jsonl`);
   }
 
-  createSession(modelId: string, parentSessionId: string | null = null): string {
-    const sessionId = randomUUID();
+  createSession(modelId: string, sessionId: string = randomUUID(), parentSessionId: string | null = null): string {
     const spec = getModelSpec(modelId);
     fs.mkdirSync(this._projectDir(), { recursive: true, mode: 0o700 });
 
@@ -68,7 +67,12 @@ export class SessionManager {
 
   async appendMessage(
     sessionId: string,
-    msg: { role: "user" | "model"; content: string; parts: MessageLine["parts"] },
+    msg: {
+      role: "user" | "model";
+      content: string;
+      parts: MessageLine["parts"];
+      thoughtSignature?: string;
+    },
     parentUuid: string | null = null,
   ): Promise<string> {
     const uuid = randomUUID();
@@ -77,6 +81,7 @@ export class SessionManager {
       role: msg.role,
       parts: msg.parts,
       content: msg.content,
+      thoughtSignature: msg.thoughtSignature,
       uuid,
       parentUuid,
       timestamp: Date.now(),
@@ -121,20 +126,27 @@ export class SessionManager {
         const lines = await this.readLines(sessionId);
         const header = lines.find(l => l.type === "header") as HeaderLine | undefined;
         if (!header) return null;
-        const firstMsg = lines.find(l => l.type === "message") as MessageLine | undefined;
+        const firstMsg = lines.find(l => l.type === "message" && (l as MessageLine).role === "user") as MessageLine | undefined;
+        let updatedAt = header.createdAt;
+        for (const line of lines) {
+          if ("timestamp" in line && typeof line.timestamp === "number") {
+            updatedAt = Math.max(updatedAt, line.timestamp);
+          }
+        }
         return {
           id: sessionId,
           model: header.model,
           cwd: header.cwd,
           createdAt: header.createdAt,
-          firstMessage: firstMsg?.content.slice(0, 100) ?? "",
+          updatedAt,
+          firstMessage: firstMsg?.content.slice(0, 100) ?? "New Thread",
           parentSessionId: header.parentSessionId,
         } satisfies SessionSummary;
       }));
 
       return summaries
         .filter((s): s is SessionSummary => s !== null)
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .sort((a, b) => b.updatedAt - a.updatedAt);
     } catch {
       return [];
     }

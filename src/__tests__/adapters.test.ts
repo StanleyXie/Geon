@@ -108,6 +108,47 @@ describe("toGeminiContents", () => {
     m.metadata = { toolInput: {} };  // missing toolName
     expect(() => toGeminiContents([m])).toThrow(/toolName/);
   });
+
+  it("handles a full tool-call turn sequence", () => {
+    const msgs = [
+      msg("user", "read file"),
+      msg("tool_call", "Read(a.ts)"),
+      msg("tool_result", "contents"),
+      msg("assistant", "Here is the content."),
+    ];
+    msgs[1]!.metadata = { toolName: "Read", toolInput: { path: "a.ts" } };
+    msgs[2]!.metadata = { toolName: "Read" };
+    const result = toGeminiContents(msgs);
+    expect(result).toHaveLength(4);
+    expect(result[0]!.role).toBe("user");
+    expect(result[1]!.role).toBe("model");
+    expect(result[2]!.role).toBe("user");
+    expect(result[3]!.role).toBe("model");
+  });
+
+  it("includes thought_signature in functionCall if present", () => {
+    const msgs = [msg("tool_call", "LS")];
+    msgs[0]!.metadata = { toolName: "LS", thoughtSignature: "sig-123" };
+    const result = toGeminiContents(msgs);
+    expect(result[0]!.parts[0]).toHaveProperty("thoughtSignature", "sig-123");
+  });
+
+  it("groups adjacent assistant and tool_call messages into one model turn", () => {
+    const msgs = [
+      msg("user", "Hello"),
+      msg("assistant", "Thinking..."),
+      msg("tool_call", "Read(a.ts)"),
+    ];
+    msgs[2]!.metadata = { toolName: "Read", toolInput: { path: "a.ts" } };
+
+    const result = toGeminiContents(msgs);
+    expect(result).toHaveLength(2); // 1 user, 1 model
+    expect(result[0]!.role).toBe("user");
+    expect(result[1]!.role).toBe("model");
+    expect(result[1]!.parts).toHaveLength(2);
+    expect(result[1]!.parts[0]).toHaveProperty("text");
+    expect(result[1]!.parts[1]).toHaveProperty("functionCall");
+  });
 });
 
 describe("extractSystemPrompt", () => {

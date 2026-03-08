@@ -21,97 +21,180 @@ import { toGeminiContents, extractSystemPrompt } from "./types.js";
 import { BUILT_IN_TOOLS } from "../tools/definitions.js";
 import { toGeminiTools } from "../tools/converters.js";
 
-function createClient(): GoogleGenAI {
-  const apiKey =
-    process.env["GOOGLE_API_KEY"] ?? process.env["GEMINI_API_KEY"];
+function createClient(overrideApiKey?: string): GoogleGenAI {
+  const envKey = process.env["GOOGLE_API_KEY"] ?? process.env["GEMINI_API_KEY"];
+  const apiKey = overrideApiKey ?? envKey;
+
   if (apiKey) {
-    return new GoogleGenAI({ apiKey });
+    process.stderr.write(`[GEON] Initializing Gemini with API Key (Mode: AI Studio)\n`);
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "antigravity" } },
+    });
   }
 
-  // Fall back to Vertex AI via ADC. Both env vars are required.
+  // Fall back to Vertex AI via ADC.
   const project = process.env["GOOGLE_CLOUD_PROJECT"];
   const location = process.env["GOOGLE_CLOUD_LOCATION"];
-  if (!project || !location) {
-    throw new Error(
-      "Gemini Vertex AI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION env vars",
-    );
+
+  if (project && location) {
+    process.stderr.write(`[GEON] Initializing Gemini with Project ${project} (Mode: Vertex AI)\n`);
+    return new GoogleGenAI({ vertexai: true, project, location });
   }
-  return new GoogleGenAI({ vertexai: true, project, location });
+
+  process.stderr.write(`[GEON] WARNING: No Gemini API Key or Vertex AI config found!\n`);
+  throw new Error(
+    "Gemini requires either an API Key (GOOGLE_API_KEY) or Vertex AI config (GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION)",
+  );
+}
+
+/**
+ * Perform a one-off "Grounded Search" using Gemini's native Google Search tool.
+ * This is a clean request with NO function declarations to avoid API conflicts.
+ */
+export async function groundedSearch(prompt: string): Promise<string> {
+  const client = createClient();
+  const modelId = process.env["GEMINI_SEARCH_MODEL"] || "gemini-2.0-flash";
+
+  const MAX_RETRIES = 12;
+  let attempt = 0;
+
+  while (attempt < MAX_RETRIES) {
+    attempt++;
+    try {
+      const response = await client.models.generateContent({
+        model: modelId,
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const text = response.response.text();
+      return text || "No results found from Google Search grounding.";
+    } catch (err: unknown) {
+      const errorStr = String(err);
+      const isRetryable = errorStr.includes("503") ||
+        errorStr.includes("Service Unavailable") ||
+        errorStr.includes("high demand") ||
+        errorStr.includes("429") ||
+        errorStr.includes("RESOURCE_EXHAUSTED") ||
+        (err as any)?.status === "RESOURCE_EXHAUSTED" ||
+        (err as any)?.code === 429;
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = (Math.pow(2, attempt) * 1000) + Math.floor(Math.random() * 1000);
+        process.stderr.write(`[GEON] groundedSearch transient error. Retrying attempt ${attempt}/${MAX_RETRIES} in ${delay}ms...\n`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return "Failed to complete search after maximum retries.";
 }
 
 export class GeminiAdapter implements ProviderAdapter {
   readonly provider = "google" as const;
   readonly modelId: string;
+  private apiKey?: string;
 
-  constructor(modelId: string) {
+  constructor(modelId: string, options?: { apiKey?: string }) {
     this.modelId = modelId;
+    this.apiKey = options?.apiKey;
   }
 
   async *stream(
+    _sessionId: string,
     messages: CanonicalMessage[],
     systemPrompt: string,
     _tools: readonly unknown[],  // reserved; GeminiAdapter always uses BUILT_IN_TOOLS
     signal: AbortSignal,
   ): AsyncIterable<NormalizedChunk> {
-    const client = createClient();
+    const client = createClient(this.apiKey);
 
     // Derive systemInstruction: prefer explicit systemPrompt param; fall back
     // to extracting system-role messages from the history.
     const sysInstruction =
       systemPrompt || extractSystemPrompt(messages) || undefined;
 
-    // Convert the canonical message history (user + assistant turns) to Gemini
-    // Content[] format. System messages are filtered out by toGeminiContents().
-    // Cast to the SDK's Content[] type — GeminiContent is structurally
-    // compatible for text, functionCall, and functionResponse parts.
     const contents = toGeminiContents(messages) as Content[];
 
     let inputTokens = 0;
     let outputTokens = 0;
     let cacheHitTokens = 0;
 
-    try {
-      const geminiTools = toGeminiTools(BUILT_IN_TOOLS);
+    const MAX_RETRIES = 12; // Increased for Gemini free-tier stability
+    let attempt = 0;
 
-      const stream = await client.models.generateContentStream({
-        model: this.modelId,
-        contents,
-        config: {
-          ...(sysInstruction ? { systemInstruction: sysInstruction } : {}),
-          tools: [{ functionDeclarations: geminiTools }],
-          abortSignal: signal,
-        },
-      });
+    while (attempt < MAX_RETRIES) {
+      if (signal.aborted) break;
+      attempt++;
 
-      for await (const chunk of stream) {
-        if (signal.aborted) break;
+      try {
+        const geminiTools = toGeminiTools(_tools as any);
 
-        const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-        for (const p of parts) {
-          if ("text" in p && p.text) {
-            yield { type: "text", text: p.text };
-          } else if ("functionCall" in p && p.functionCall) {
-            const fc = p.functionCall as { name?: string; args?: unknown };
-            // toolUseId intentionally absent — server assigns a UUID in the agentic loop
-            yield {
-              type: "tool_call",
-              toolName: fc.name ?? "",
-              toolInput: fc.args ?? {},
-            };
+        const stream = await client.models.generateContentStream({
+          model: this.modelId,
+          contents,
+          config: {
+            ...(sysInstruction ? { systemInstruction: sysInstruction } : {}),
+            tools: [{ functionDeclarations: geminiTools }],
+            abortSignal: signal,
+          },
+        });
+
+        for await (const chunk of stream) {
+          if (signal.aborted) break;
+
+          const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+          for (const p of parts) {
+            if ("text" in p && p.text) {
+              yield { type: "text", text: p.text };
+            } else if ("functionCall" in p && p.functionCall) {
+              const fc = p.functionCall as { name?: string; args?: unknown; thought_signature?: string };
+              yield {
+                type: "tool_call",
+                toolName: fc.name ?? "",
+                toolInput: fc.args ?? {},
+                thoughtSignature: fc.thought_signature || (p as any).thoughtSignature,
+              };
+            }
+          }
+
+          const u = chunk.usageMetadata;
+          if (u) {
+            inputTokens = u.promptTokenCount ?? inputTokens;
+            outputTokens = u.candidatesTokenCount ?? outputTokens;
+            cacheHitTokens = u.cachedContentTokenCount ?? cacheHitTokens;
           }
         }
 
-        // Accumulate usage from each chunk (Gemini reports running totals per chunk).
-        const u = chunk.usageMetadata;
-        if (u) {
-          inputTokens = u.promptTokenCount ?? inputTokens;
-          outputTokens = u.candidatesTokenCount ?? outputTokens;
-          cacheHitTokens = u.cachedContentTokenCount ?? cacheHitTokens;
+        // Success, exit the retry loop
+        break;
+
+      } catch (err: unknown) {
+        if (signal.aborted) return;
+
+        const errorStr = String(err);
+        const isRetryable = errorStr.includes("503") ||
+          errorStr.includes("Service Unavailable") ||
+          errorStr.includes("high demand") ||
+          errorStr.includes("429") ||
+          errorStr.includes("RESOURCE_EXHAUSTED") ||
+          (err as any)?.status === "RESOURCE_EXHAUSTED" ||
+          (err as any)?.code === 429;
+
+        if (isRetryable && attempt < MAX_RETRIES) {
+          // Jittered exponential backoff
+          const delay = (Math.pow(2, attempt) * 1000) + Math.floor(Math.random() * 1000);
+          process.stderr.write(`[GEON] Gemini transient error detected (503/429). Retrying attempt ${attempt}/${MAX_RETRIES} in ${delay}ms... (Error: ${errorStr.slice(0, 100)})\n`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
         }
+
+        throw err;
       }
-    } catch (err: unknown) {
-      if (signal.aborted) return;
-      throw err;
     }
 
     yield {

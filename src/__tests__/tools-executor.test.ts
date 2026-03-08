@@ -1,5 +1,5 @@
 // src/__tests__/tools-executor.test.ts
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, beforeEach, spyOn } from "bun:test";
 import { executeToolCall } from "../tools/executor.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -143,5 +143,152 @@ describe("unknown tool", () => {
   it("throws on unknown tool name", async () => {
     fresh();
     await expect(executeToolCall("Unknown", {}, tmpDir)).rejects.toThrow("Unknown tool");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WebFetch
+// ---------------------------------------------------------------------------
+
+function makeFetchResponse(body: string, contentType = "text/plain", ok = true, status = 200) {
+  return Promise.resolve({
+    ok,
+    status,
+    statusText: ok ? "OK" : "Not Found",
+    headers: { get: (_: string) => contentType },
+    text: () => Promise.resolve(body),
+  } as unknown as Response);
+}
+
+describe("WebFetch", () => {
+  let origFetch: typeof globalThis.fetch;
+  beforeEach(() => { origFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = origFetch; });
+
+  it("returns plain text body unchanged", async () => {
+    globalThis.fetch = () => makeFetchResponse("hello world");
+    const result = await executeToolCall("WebFetch", { url: "https://example.com" }, "/tmp");
+    expect(result).toBe("hello world");
+  });
+
+  it("strips HTML tags from HTML response", async () => {
+    const html = "<html><body><h1>Title</h1><p>Content here</p></body></html>";
+    globalThis.fetch = () => makeFetchResponse(html, "text/html");
+    const result = await executeToolCall("WebFetch", { url: "https://example.com" }, "/tmp");
+    expect(result).toContain("Title");
+    expect(result).toContain("Content here");
+    expect(result).not.toContain("<h1>");
+    expect(result).not.toContain("<p>");
+  });
+
+  it("strips script and style blocks from HTML", async () => {
+    const html = "<html><head><style>body{color:red}</style><script>alert(1)</script></head><body>Real content</body></html>";
+    globalThis.fetch = () => makeFetchResponse(html, "text/html");
+    const result = await executeToolCall("WebFetch", { url: "https://example.com" }, "/tmp");
+    expect(result).toContain("Real content");
+    expect(result).not.toContain("color:red");
+    expect(result).not.toContain("alert");
+  });
+
+  it("throws on HTTP error status", async () => {
+    globalThis.fetch = () => makeFetchResponse("", "text/plain", false, 404);
+    await expect(
+      executeToolCall("WebFetch", { url: "https://example.com/missing" }, "/tmp"),
+    ).rejects.toThrow("HTTP 404");
+  });
+
+  it("throws when url is missing", async () => {
+    await expect(executeToolCall("WebFetch", {}, "/tmp")).rejects.toThrow("requires url");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WebSearch
+// ---------------------------------------------------------------------------
+
+function makeSearchResponse(results: Array<{ title: string; url: string; description?: string }>) {
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: () => Promise.resolve({ web: { results } }),
+  } as unknown as Response);
+}
+
+describe("WebSearch", () => {
+  let origFetch: typeof globalThis.fetch;
+  let origEnv: string | undefined;
+  beforeEach(() => {
+    origFetch = globalThis.fetch;
+    origEnv = process.env["BRAVE_SEARCH_API_KEY"];
+    process.env["BRAVE_SEARCH_API_KEY"] = "test-key";
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+    if (origEnv === undefined) delete process.env["BRAVE_SEARCH_API_KEY"];
+    else process.env["BRAVE_SEARCH_API_KEY"] = origEnv;
+  });
+
+  it("returns formatted results", async () => {
+    globalThis.fetch = () => makeSearchResponse([
+      { title: "Bun Docs", url: "https://bun.sh/docs", description: "Official Bun documentation" },
+      { title: "Bun GitHub", url: "https://github.com/oven-sh/bun", description: "Source code" },
+    ]);
+    const result = await executeToolCall("WebSearch", { query: "bun runtime" }, "/tmp");
+    expect(result).toContain("1. Bun Docs");
+    expect(result).toContain("https://bun.sh/docs");
+    expect(result).toContain("Official Bun documentation");
+    expect(result).toContain("2. Bun GitHub");
+    expect(result).toContain("(2 results)");
+  });
+
+  it("filters by allowed_domains", async () => {
+    globalThis.fetch = () => makeSearchResponse([
+      { title: "A", url: "https://allowed.com/page", description: "" },
+      { title: "B", url: "https://other.com/page", description: "" },
+    ]);
+    const result = await executeToolCall("WebSearch", {
+      query: "test",
+      allowed_domains: ["allowed.com"],
+    }, "/tmp");
+    expect(result).toContain("allowed.com");
+    expect(result).not.toContain("other.com");
+  });
+
+  it("filters by blocked_domains", async () => {
+    globalThis.fetch = () => makeSearchResponse([
+      { title: "A", url: "https://good.com/page", description: "" },
+      { title: "B", url: "https://spam.com/page", description: "" },
+    ]);
+    const result = await executeToolCall("WebSearch", {
+      query: "test",
+      blocked_domains: ["spam.com"],
+    }, "/tmp");
+    expect(result).toContain("good.com");
+    expect(result).not.toContain("spam.com");
+  });
+
+  it("returns no results message when all filtered", async () => {
+    globalThis.fetch = () => makeSearchResponse([
+      { title: "A", url: "https://blocked.com/page", description: "" },
+    ]);
+    const result = await executeToolCall("WebSearch", {
+      query: "test",
+      blocked_domains: ["blocked.com"],
+    }, "/tmp");
+    expect(result).toContain("No results found.");
+  });
+
+  it("returns error message when no provider is configured", async () => {
+    delete process.env["BRAVE_SEARCH_API_KEY"];
+    delete process.env["GOOGLE_CSE_API_KEY"];
+    delete process.env["SERPER_API_KEY"];
+    delete process.env["SEARXNG_URL"];
+    const result = await executeToolCall("WebSearch", { query: "test" }, "/tmp");
+    expect(result).toContain("No search provider configured");
+  });
+
+  it("throws when query is missing", async () => {
+    await expect(executeToolCall("WebSearch", {}, "/tmp")).rejects.toThrow("requires query");
   });
 });

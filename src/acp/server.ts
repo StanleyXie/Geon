@@ -9,6 +9,7 @@ import {
   type SetSessionConfigOptionRequest, type SetSessionConfigOptionResponse,
   type CancelNotification, type SessionConfigOption,
   type AuthenticateRequest, type AuthenticateResponse,
+  type ToolKind, type ToolCallLocation,
 } from "@agentclientprotocol/sdk";
 
 import { ContextGraph } from "../context/graph.js";
@@ -21,7 +22,8 @@ import { BUILT_IN_TOOLS } from "../tools/definitions.js";
 import { executeToolCall } from "../tools/executor.js";
 import { ClaudeAdapter } from "../adapters/claude.js";
 import { GeminiAdapter } from "../adapters/gemini.js";
-import { ProxyClaudeAdapter } from "../adapters/proxy-claude.js";
+import { LocalModelAdapter } from "../adapters/local.js";
+import { DEFAULT_SETTINGS, mergeSettings, type GeonSettings } from "./config.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -76,17 +78,78 @@ function transformToolCallXml(text: string): string {
   return out;
 }
 
-export function formatToolLabel(toolName: string, toolInput: unknown): string {
-  const input = toolInput as Record<string, unknown> | undefined;
+export function toolCallTitle(toolName: string, toolInput: any): string {
+  const tool = BUILT_IN_TOOLS.find((t) => t.name === toolName);
+  if (tool?.getTitle) return tool.getTitle(toolInput);
+
   switch (toolName) {
-    case "Read":
+    case "Read": return `Read ${toolInput.path || "file"}`;
+    case "Write": return `Write ${toolInput.path || "file"}`;
+    case "Edit": return `Edit ${toolInput.path || "file"}`;
+    case "Bash": return toolInput.command || "Terminal";
+    case "Glob":
+    case "Find": return `find ${toolInput.pattern || "*"}`;
+    case "Grep": return `grep ${toolInput.pattern || "*"}`;
+    case "LS": return `ls ${toolInput.path || "."}`;
+    default: return toolName || "Tool Call";
+  }
+}
+
+export function toolCallKind(toolName: string): ToolKind {
+  const tool = BUILT_IN_TOOLS.find((t) => t.name === toolName);
+  if (tool) return tool.kind;
+
+  switch (toolName) {
+    case "Read": return "read";
+    case "Write": return "edit";
+    case "Edit": return "edit";
+    case "Bash": return "execute";
+    case "Glob":
+    case "Find": return "search";
+    case "Grep": return "search";
+    case "LS": return "search";
+    case "WebFetch": return "fetch";
+    case "WebSearch": return "fetch";
+    default: return "other";
+  }
+}
+
+export function toolCallLocations(toolName: string, toolInput: any): ToolCallLocation[] {
+  const tool = BUILT_IN_TOOLS.find((t) => t.name === toolName);
+  if (tool?.getLocations) return tool.getLocations(toolInput);
+
+  const input = toolInput as Record<string, unknown> | undefined;
+  const path = input?.["path"];
+  if (typeof path === "string" && path &&
+    (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "LS")) {
+    return [{ path }];
+  }
+  return [];
+}
+
+import type { ToolCallContent } from "@agentclientprotocol/sdk";
+
+export function getToolCallContent(toolName: string, toolInput: any, resultText: string): ToolCallContent[] {
+  switch (toolName) {
+    case "Edit":
+      return [{
+        type: "diff",
+        path: toolInput.path,
+        oldText: toolInput.old_string,
+        newText: toolInput.new_string,
+      }];
     case "Write":
-    case "Edit":  return String(input?.["path"] ?? "");
-    case "Bash":  return String(input?.["command"] ?? "");
-    case "Glob":  return String(input?.["pattern"] ?? "");
-    case "Grep":  return String(input?.["pattern"] ?? "");
-    case "LS":    return String(input?.["path"] ?? "");
-    default:      return JSON.stringify(toolInput ?? {});
+      return [{
+        type: "diff",
+        path: toolInput.path,
+        oldText: null, // Full overwrite
+        newText: toolInput.content,
+      }];
+    case "Bash":
+      // Optional: Add terminal support if terminalId is available
+      return [{ type: "content", content: { type: "text", text: `\`\`\`console\n${resultText}\n\`\`\`` } }];
+    default:
+      return [{ type: "content", content: { type: "text", text: resultText } }];
   }
 }
 
@@ -122,9 +185,29 @@ async function* transformStream(
     return null;
   }
 
+  let isFirstTextChunk = true;
+
+  function stripRoleMarkers(text: string): string {
+    if (!isFirstTextChunk) return text;
+    // Strip common role markers models sometimes hallucinate
+    const stripped = text
+      .replace(/^(Assistant|AI|Model):\s*/i, "")
+      .replace(/^##\s*(Assistant|AI|Model)\s*\n?/i, "");
+    if (stripped !== text) {
+      isFirstTextChunk = false; // we processed the first chunk
+      return stripped.trimStart();
+    }
+    if (text.trim().length > 0) {
+      isFirstTextChunk = false;
+    }
+    return text;
+  }
+
   for await (const chunk of source) {
     if (chunk.type !== "text") { yield chunk; continue; }
-    lineBuf += chunk.text;
+
+    const text = stripRoleMarkers(chunk.text);
+    lineBuf += text;
     let nl: number;
     while ((nl = lineBuf.indexOf("\n")) !== -1) {
       const line = lineBuf.slice(0, nl + 1);
@@ -142,18 +225,6 @@ async function* transformStream(
   if (xmlTag && xmlBuf) {
     yield { type: "text", text: `<${xmlTag}>\n${xmlBuf}` };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: makeAdapter
-// ---------------------------------------------------------------------------
-
-function makeAdapter(modelId: string): ClaudeAdapter | GeminiAdapter | ProxyClaudeAdapter {
-  const spec = MODEL_SPECS[modelId];
-  if (!spec) throw new Error(`No adapter for model: ${modelId}`);
-  if (spec.provider === "anthropic") return new ClaudeAdapter(modelId);
-  if (spec.provider === "google-claude") return new ProxyClaudeAdapter(spec.apiModelId ?? modelId);
-  return new GeminiAdapter(modelId);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +270,7 @@ interface SessionState {
 export class UniversalAcpAgent implements Agent {
   private conn: AgentSideConnection;
   private sessions: Map<string, SessionState> = new Map();
+  private settings: GeonSettings = DEFAULT_SETTINGS;
 
   constructor(conn: AgentSideConnection) {
     this.conn = conn;
@@ -215,9 +287,55 @@ export class UniversalAcpAgent implements Agent {
           list: {},
           resume: {},
         },
-      },
+        configSettings: [
+          {
+            id: "google_api_key",
+            name: "Google API Key",
+            description: "Dedicated Google AI Studio API Key for Gemini",
+            type: "string",
+            isSecret: true,
+          },
+          {
+            id: "google_enabled",
+            name: "Enable Google",
+            description: "Whether to enable Gemini provider",
+            type: "boolean",
+          },
+          {
+            id: "anthropic_api_key",
+            name: "Anthropic API Key",
+            description: "Dedicated Anthropic API Key for Claude",
+            type: "string",
+            isSecret: true,
+          },
+          {
+            id: "anthropic_enabled",
+            name: "Enable Anthropic",
+            description: "Whether to enable Claude provider",
+            type: "boolean",
+          },
+          {
+            id: "local_enabled",
+            name: "Enable Local",
+            description: "Whether to enable local models",
+            type: "boolean",
+          },
+          {
+            id: "local_endpoint",
+            name: "Local Endpoint",
+            description: "OpenAI-compatible endpoint (e.g. http://localhost:8000/v1)",
+            type: "string",
+          },
+          {
+            id: "default_model",
+            name: "Default Model",
+            description: "The default model used for new sessions",
+            type: "string",
+          }
+        ],
+      } as any,
       agentInfo: {
-        name: "GEON",
+        name: "Geon",
         version: "0.1.0",
       },
     };
@@ -234,9 +352,13 @@ export class UniversalAcpAgent implements Agent {
   async newSession(req: NewSessionRequest): Promise<NewSessionResponse> {
     const cwd = req.cwd ?? process.cwd();
     const sessionManager = new SessionManager({ cwd });
-    const graph = ContextGraph.create(DEFAULT_MODEL);
-    const sessionId = sessionManager.createSession(DEFAULT_MODEL);
-    const configOptions = makeModelConfigOptions(DEFAULT_MODEL);
+
+    // Determine the starting model based on settings or req.sessionId
+    const initialModel = this.settings.defaultModel ?? DEFAULT_MODEL;
+
+    const graph = ContextGraph.create(initialModel);
+    const sessionId = sessionManager.createSession(initialModel);
+    const configOptions = makeModelConfigOptions(initialModel);
 
     this.sessions.set(sessionId, {
       graph,
@@ -303,12 +425,12 @@ export class UniversalAcpAgent implements Agent {
           break;
         }
         const payload = node.engine.prepare();
-        const adapter = makeAdapter(node.store.modelId);
+        const adapter = this.makeAdapter(node.store.modelId);
         let toolCallsMadeThisRound = false;
         let roundText = "";   // text emitted by the model in this round
 
         for await (const chunk of transformStream(
-          adapter.stream(payload.messages, "", BUILT_IN_TOOLS, signal),
+          adapter.stream(req.sessionId, payload.messages, "", BUILT_IN_TOOLS, signal),
         )) {
           if (signal.aborted) break;
 
@@ -325,76 +447,109 @@ export class UniversalAcpAgent implements Agent {
           } else if (chunk.type === "tool_call" && chunk.toolName) {
             toolCallsMadeThisRound = true;
             const toolUseId = chunk.toolUseId ?? randomUUID();
-            const label = `\n\n**[${chunk.toolName}]** \`${formatToolLabel(chunk.toolName, chunk.toolInput)}\`\n`;
-            fullText += label;
-            await this.conn.sessionUpdate({
-              sessionId: req.sessionId,
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: label },
-              },
-            });
+            const title = toolCallTitle(chunk.toolName, chunk.toolInput);
+            const kind = toolCallKind(chunk.toolName);
+            const locations = toolCallLocations(chunk.toolName, chunk.toolInput);
 
-            // Execute the tool
-            let resultText: string;
-            let isError = false;
-            try {
-              resultText = await executeToolCall(
-                chunk.toolName,
-                chunk.toolInput as Record<string, unknown>,
-                state.cwd,
-              );
-            } catch (err: unknown) {
-              resultText = `Error: ${(err as Error).message}`;
-              isError = true;
-            }
-
-            // Emit truncated result preview (first 5 lines as blockquote)
-            const preview = resultText.split("\n").slice(0, 5).map(l => `> ${l}`).join("\n") + "\n";
-            fullText += preview;
-            await this.conn.sessionUpdate({
-              sessionId: req.sessionId,
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: preview },
-              },
-            });
-
-            // If model emitted text before this tool call, add it as assistant message
-            if (roundText) {
-              node.addMessage("assistant", roundText);
-              await state.sessionManager.appendMessage(req.sessionId, {
-                role: "model",
-                content: roundText,
-                parts: [{ text: roundText }],
+            if (chunk.sdkManagedTool) {
+              // ── SDK-managed tool (ClaudeAdapter) ────────────────────────
+              // The Claude Agent SDK already executed this tool remotely.
+              // We only emit ACP notifications for UI observability — no
+              // local executeToolCall, no L1/JSONL writes (the SDK owns the
+              // result and will include it in the next assistant turn).
+              await this.conn.sessionUpdate({
+                sessionId: req.sessionId,
+                update: {
+                  sessionUpdate: "tool_call",
+                  toolCallId: toolUseId,
+                  title,
+                  kind,
+                  status: "completed",
+                  rawInput: chunk.toolInput,
+                  ...(locations.length > 0 ? { locations } : {}),
+                },
               });
-              roundText = "";
+            } else {
+              // ── Locally-executed tool (GeminiAdapter / ProxyClaudeAdapter)
+              // Emit pending notification, run the tool, then report result.
+
+              await this.conn.sessionUpdate({
+                sessionId: req.sessionId,
+                update: {
+                  sessionUpdate: "tool_call",
+                  toolCallId: toolUseId,
+                  title,
+                  kind,
+                  status: "pending",
+                  rawInput: chunk.toolInput,
+                  ...(locations.length > 0 ? { locations } : {}),
+                },
+              });
+
+              // Execute the tool locally
+              let resultText: string;
+              let isError = false;
+              try {
+                resultText = await executeToolCall(
+                  chunk.toolName,
+                  chunk.toolInput as Record<string, unknown>,
+                  state.cwd,
+                );
+              } catch (err: unknown) {
+                resultText = `Error: ${(err as Error).message}`;
+                isError = true;
+              }
+
+              // Report result
+              await this.conn.sessionUpdate({
+                sessionId: req.sessionId,
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  toolCallId: toolUseId,
+                  status: isError ? "failed" : "completed",
+                  rawOutput: resultText,
+                  content: getToolCallContent(chunk.toolName, chunk.toolInput, resultText),
+                },
+              });
+
+              // Flush any preceding text as a separate assistant message
+              if (roundText) {
+                node.addMessage("assistant", roundText);
+                await state.sessionManager.appendMessage(req.sessionId, {
+                  role: "model",
+                  content: roundText,
+                  parts: [{ text: roundText }],
+                });
+                roundText = "";
+              }
+
+              // Record tool_call + tool_result in L1 context
+              const toolLabel = `${chunk.toolName}(${toolCallTitle(chunk.toolName, chunk.toolInput)})`;
+              node.addMessage("tool_call", toolLabel, {
+                toolUseId,
+                toolName: chunk.toolName,
+                toolInput: chunk.toolInput,
+                thoughtSignature: chunk.thoughtSignature,
+              });
+              node.addMessage("tool_result", resultText, {
+                toolUseId,
+                toolName: chunk.toolName,
+                isError,
+              });
+
+              // Persist to JSONL
+              const toolCallLine: ToolCallLine = {
+                type: "tool_call",
+                toolName: chunk.toolName,
+                input: chunk.toolInput,
+                result: resultText,
+                thoughtSignature: chunk.thoughtSignature,
+                isError,
+                uuid: toolUseId,
+                timestamp: Date.now(),
+              };
+              await state.sessionManager.appendLine(req.sessionId, toolCallLine);
             }
-
-            // Add tool_call and tool_result to L1
-            const toolLabel = `${chunk.toolName}(${formatToolLabel(chunk.toolName, chunk.toolInput)})`;
-            node.addMessage("tool_call", toolLabel, {
-              toolUseId,
-              toolName: chunk.toolName,
-              toolInput: chunk.toolInput,
-            });
-            node.addMessage("tool_result", resultText, {
-              toolUseId,
-              toolName: chunk.toolName,
-              isError,
-            });
-
-            // Persist tool_call line to JSONL
-            const toolCallLine: ToolCallLine = {
-              type: "tool_call",
-              toolName: chunk.toolName,
-              input: chunk.toolInput,
-              result: resultText,
-              isError,
-              uuid: toolUseId,
-              timestamp: Date.now(),
-            };
-            await state.sessionManager.appendLine(req.sessionId, toolCallLine);
 
           } else if (chunk.type === "done") {
             inputTokens += chunk.inputTokens ?? 0;
@@ -410,7 +565,23 @@ export class UniversalAcpAgent implements Agent {
       }
     } catch (err: unknown) {
       if (signal.aborted) return { stopReason: "cancelled" };
-      throw err;
+
+      // Instead of throwing and causing an "Internal Error" in Zed,
+      // report the error as a model chunk so the user can see what happened.
+      const errorMsg = (err as any)?.message || String(err);
+      await this.conn.sessionUpdate({
+        sessionId: req.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: `\n\n> [!CAUTION]\n> **Model Error:** ${errorMsg}\n>\n> This turn failed. You may want to wait a few seconds or try switching to a different model in the config.`
+          },
+        },
+      });
+
+      // We don't throw here, allowing the session to remain alive
+      return { stopReason: "completed" };
     }
 
     if (signal.aborted) return { stopReason: "cancelled" };
@@ -529,10 +700,11 @@ export class UniversalAcpAgent implements Agent {
         node.addMessage(role, ml.content);
       } else if (line.type === "tool_call") {
         const tl = line as ToolCallLine;
-        node.addMessage("tool_call", `${tl.toolName}(${formatToolLabel(tl.toolName, tl.input)})`, {
+        node.addMessage("tool_call", `${tl.toolName}(${toolCallTitle(tl.toolName, tl.input)})`, {
           toolUseId: tl.uuid,
           toolName: tl.toolName,
           toolInput: tl.input,
+          thoughtSignature: tl.thoughtSignature,
         });
         node.addMessage("tool_result", String(tl.result ?? ""), {
           toolUseId: tl.uuid,
@@ -590,6 +762,28 @@ export class UniversalAcpAgent implements Agent {
             },
           });
         }
+      } else if (line.type === "tool_call") {
+        const tl = line as ToolCallLine;
+        const title = toolCallTitle(tl.toolName, tl.input);
+        const kind = toolCallKind(tl.toolName);
+        const locations = toolCallLocations(tl.toolName, tl.input);
+        const resultText = String(tl.result ?? "");
+        await this.conn.sessionUpdate({
+          sessionId: req.sessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: tl.uuid,
+            title,
+            kind,
+            status: tl.isError ? "failed" : "completed",
+            rawInput: tl.input,
+            rawOutput: tl.result,
+            content: resultText
+              ? [{ type: "content" as const, content: { type: "text" as const, text: resultText } }]
+              : [],
+            ...(locations.length > 0 ? { locations } : {}),
+          },
+        });
       }
     }
 
@@ -625,7 +819,7 @@ export class UniversalAcpAgent implements Agent {
         node.addMessage(role, ml.content);
       } else if (line.type === "tool_call") {
         const tl = line as ToolCallLine;
-        node.addMessage("tool_call", `${tl.toolName}(${formatToolLabel(tl.toolName, tl.input)})`, {
+        node.addMessage("tool_call", `${tl.toolName}(${toolCallTitle(tl.toolName, tl.input)})`, {
           toolUseId: tl.uuid,
           toolName: tl.toolName,
           toolInput: tl.input,
@@ -680,7 +874,7 @@ export class UniversalAcpAgent implements Agent {
         sessionId: s.id,
         cwd: s.cwd,
         title: s.firstMessage || null,
-        updatedAt: new Date(s.createdAt).toISOString(),
+        updatedAt: new Date(s.updatedAt).toISOString(),
       })),
     };
   }
@@ -736,17 +930,52 @@ export class UniversalAcpAgent implements Agent {
   // ---- extension stubs -----------------------------------------------------
 
   async extMethod(
-    _method: string,
-    _params: Record<string, unknown>,
+    method: string,
+    params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    if (method === "set_agent_config") {
+      process.stderr.write(`[GEON] set_agent_config received: ${JSON.stringify(params)}\n`);
+      this.settings = mergeSettings(this.settings, params);
+      process.stderr.write(`[GEON] current settings: ${JSON.stringify(this.settings)}\n`);
+      return {};
+    }
     return {};
   }
 
   async extNotification(
-    _method: string,
-    _params: Record<string, unknown>,
+    method: string,
+    params: Record<string, unknown>,
   ): Promise<void> {
-    // no-op
+    if (method === "set_agent_config") {
+      process.stderr.write(`[GEON] set_agent_config received: ${JSON.stringify(params)}\n`);
+      this.settings = mergeSettings(this.settings, params);
+      process.stderr.write(`[GEON] current settings: ${JSON.stringify(this.settings)}\n`);
+    }
+  }
+
+  // ---- private helpers -----------------------------------------------------
+
+  private makeAdapter(modelId: string): ClaudeAdapter | GeminiAdapter {
+    const spec = MODEL_SPECS[modelId];
+    if (!spec) throw new Error(`No adapter for model: ${modelId}`);
+
+    const providerConfig = this.settings.providers[spec.provider];
+    process.stderr.write(`[GEON] makeAdapter for ${modelId}, provider: ${spec.provider}, config: ${JSON.stringify(providerConfig)}\n`);
+
+    if (providerConfig && !providerConfig.enabled) {
+      throw new Error(`Provider for ${modelId} (${spec.provider}) is disabled in settings.`);
+    }
+
+    if (spec.provider === "anthropic") {
+      return new ClaudeAdapter(modelId, { apiKey: providerConfig?.apiKey });
+    }
+    if (spec.provider === "local") {
+      return new LocalModelAdapter(modelId, {
+        endpoint: (providerConfig?.parameters?.endpoint as string) || "http://localhost:8000/v1",
+        apiKey: providerConfig?.apiKey
+      });
+    }
+    return new GeminiAdapter(modelId, { apiKey: providerConfig?.apiKey });
   }
 }
 

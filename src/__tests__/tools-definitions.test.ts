@@ -2,10 +2,12 @@ import { describe, it, expect } from "bun:test";
 import { BUILT_IN_TOOLS } from "../tools/definitions.js";
 
 describe("BUILT_IN_TOOLS", () => {
-  const EXPECTED_NAMES = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "LS"];
+  const EXPECTED_NAMES = [
+    "Read", "Write", "Edit", "Bash", "Glob", "Find", "Grep", "LS", "WebFetch", "WebSearch", "GoogleGroundedSearch"
+  ];
 
-  it("defines exactly 7 tools", () => {
-    expect(BUILT_IN_TOOLS).toHaveLength(7);
+  it("defines exactly 11 tools", () => {
+    expect(BUILT_IN_TOOLS).toHaveLength(11);
   });
 
   it("has all expected tool names", () => {
