@@ -36,7 +36,7 @@ export const BUILT_IN_TOOLS: readonly ToolDefinition[] = [
       }
       return `Read ${input.path}${limit}`;
     },
-    getLocations: (input) => [{ path: input.path, line: input.offset ?? 1 }],
+    getLocations: (input) => input.path ? [{ path: input.path, line: input.offset ?? 1 }] : [],
   },
   {
     name: "Write",
@@ -51,7 +51,7 @@ export const BUILT_IN_TOOLS: readonly ToolDefinition[] = [
       required: ["path", "content"],
     },
     getTitle: (input) => `Write ${input.path}`,
-    getLocations: (input) => [{ path: input.path }],
+    getLocations: (input) => input.path ? [{ path: input.path }] : [],
   },
   {
     name: "Edit",
@@ -141,7 +141,7 @@ export const BUILT_IN_TOOLS: readonly ToolDefinition[] = [
       required: ["path"],
     },
     getTitle: (input) => `ls ${input.path}`,
-    getLocations: (input) => [{ path: input.path }],
+    getLocations: (input) => input.path ? [{ path: input.path }] : [],
   },
   {
     name: "WebFetch",
