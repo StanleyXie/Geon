@@ -23,6 +23,7 @@ import { executeToolCall } from "../tools/executor.js";
 import { ClaudeAdapter } from "../adapters/claude.js";
 import { GeminiAdapter } from "../adapters/gemini.js";
 import { LocalModelAdapter } from "../adapters/local.js";
+import type { ProviderAdapter } from "../adapters/types.js";
 import { DEFAULT_SETTINGS, mergeSettings, type GeonSettings } from "./config.js";
 
 // ---------------------------------------------------------------------------
