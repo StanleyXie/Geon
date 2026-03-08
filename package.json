@@ -1,6 +1,6 @@
 {
-  "name": "@zed-plugins/geon",
-  "version": "0.1.0",
+  "name": "geon-agent",
+  "version": "0.1.1",
   "description": "GEON — multi-provider ACP agent for Claude and Gemini with L1/L2/L3 context pipeline",
   "type": "module",
   "bin": {

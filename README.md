@@ -1,67 +1,89 @@
-# GEON
+# Geon: Quick Start Tutorial 🚀
 
-GEON is a powerful multi-provider agent for the [Agent Client Protocol](https://github.com/agentclientprotocol/protocol), designed specifically for the Zed editor. It features a sophisticated L1/L2/L3 context pipeline and built-in support for Claude, Gemini, and local models via OpenAI-compatible endpoints.
+Geon is an advanced [Agent Client Protocol](https://github.com/agentclientprotocol/protocol) agent built for the Zed editor. It gives your LLM (Claude, Gemini, or Local) full control over your filesystem, shell, and the web.
 
-## Features
+---
 
-- **Multi-Provider Support**: Seamlessly switch between Anthropic Claude, Google Gemini, and local LLMs (via llama.cpp, Ollama, etc.).
-- **Agentic Loop**: Native support for multi-turn tool execution within the protocol.
-- **Context Pipeline**: Advanced token management with L1 (active), L2 (summarized), and L3 (archived) memory.
-- **Rich Toolset**: 11 built-in tools for filesystem operations, terminal execution, and web search/fetch.
-- **Search capabilities**:
-  - **WebSearch**: Integrated with a local SearXNG instance for private, reliable search results.
-  - **GoogleGroundedSearch**: High-fidelity search using Google's native grounding for cited, descriptive answers.
-- **Observability**: Detailed token usage statistics for every turn and session.
+## ⚡ 1. Install Geon
 
-## Getting Started
+Install it globally using your favorite package manager:
 
-### Prerequisites
+```bash
+# Using Bun (Fastest)
+bun install -g geon-agent
 
-- [Bun](https://bun.sh/) runtime
-- [Zed](https://zed.dev/) editor (Preview or Stable with ACP support)
+# Using NPM
+npm install -g geon-agent
+```
 
-### Installation
+Check the binary path to use in Zed:
+```bash
+which geon
+```
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/StanleyXie/Geon.git
-   cd Geon
-   ```
+---
 
-2. Install dependencies:
-   ```bash
-   bun install
-   ```
+## ⚙️ 2. Configure Zed
 
-3. Build the project:
-   ```bash
-   bun run build
-   ```
-
-### Configuration in Zed
-
-Add the following to your `settings.json` in Zed to enable Geon:
+Open your Zed `settings.json` (Cmd + ,) and add the following `agents` block:
 
 ```json
 "agents": {
   "geon": {
-    "command": "/path/to/Geon/dist/geon",
+    "command": "/usr/local/bin/geon", // Replace with your 'which geon' output
     "settings": {
       "google_api_key": "YOUR_GEMINI_API_KEY",
+      "google_enabled": true,
       "anthropic_api_key": "YOUR_CLAUDE_API_KEY",
-      "local_enabled": true,
-      "local_endpoint": "http://localhost:8000/v1"
+      "anthropic_enabled": true,
+      "local_enabled": false // Set to true if running a local LLM
     }
   }
 }
 ```
 
-## Built-in Tools
+---
 
-- **Filesystem**: `Read`, `Write`, `Edit`, `LS`, `Glob`, `Find`
-- **Shell**: `Bash`
-- **Web**: `WebFetch`, `WebSearch`, `GoogleGroundedSearch`, `Grep`
+## 🌩️ 3. Start Sidecar Services (Optional)
 
-## License
+Geon features a private **Web Search** tool powered by [SearXNG](https://searxng.github.io/searxng/). To use it, you can run the included helper script:
 
-MIT
+```bash
+# In your source directory, or download geon-env.sh
+./geon-env.sh start
+```
+*This starts a local SearXNG container (Podman/Docker) and a local LLM server (llama-server).*
+
+---
+
+## 🧤 4. Your First Geon Prompt
+
+Once setup, open an ACP session in Zed and select `Geon` as your agent.
+
+**Try asking it to perform a complex cross-file task:**
+> "Find all TODOs in this project using Grep, research the latest Zed plugin API changes with WebSearch, and write a summary in a new file called ARCHITECTURE_PLAN.md."
+
+---
+
+## 🧠 Why Geon?
+
+### The Context Strategy: L1/L2/L3
+Unlike simple agents, Geon manages its memory like a human developer:
+- **L1 (Active)**: Recent messages kept in full fidelity.
+- **L2 (Context)**: Middle-range messages summarized to save tokens.
+- **L3 (Archive)**: Old messages archived for deep retrieval.
+
+### Multi-Provider Agentic Loop
+Geon doesn't just "propose" edits. It executes them, sees the output, fixes bugs, and continues until the job is done.
+
+### Built-in Tool Matrix
+| Filesystem | Shell | Web & Search |
+| :--- | :--- | :--- |
+| `Read`, `Write` | `Bash` | `WebSearch` (SearXNG) |
+| `Edit`, `LS` | | `WebFetch` (Readable Text) |
+| `Glob`, `Find` | | `GoogleGroundedSearch` |
+
+---
+
+## 📜 License
+MIT © 2026 Stanley Xie
