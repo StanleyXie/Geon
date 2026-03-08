@@ -18,18 +18,18 @@ Run tests that verify interactions with external models (mocks or local instance
 bun test src/__tests__/adapters.test.ts src/__tests__/server-helpers.test.ts
 ```
 
-### 🏎️ 3. E2E Testing (System Verification)
+### 3. E2E Testing (System Verification)
 Perform a full boot and basic prompt check to ensure the binary is stable.
 // turbo
 ```bash
-bun run build && dist/geon --help
+bun run build && dist/geon --version
 ```
 
 ### 🛡️ 4. Security Testing & Assessment
 Perform a security audit of dependencies and secret scanning.
 // turbo
 ```bash
-npm audit
+bun audit
 ```
 
 ### 🏁 5. Final Quality Gate
