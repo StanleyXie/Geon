@@ -51,7 +51,7 @@ jobs:
       - name: Version bump
         run: |
           NEW_VERSION=$(npm version ${{ github.event.inputs.bump }} --no-git-tag-version)
-          git add package.json bun.lockb || true
+          git add package.json bun.lock || true
           git commit -m "chore: release $NEW_VERSION [skip ci]"
           git tag $NEW_VERSION
 
