@@ -45,13 +45,18 @@ jobs:
           bun audit
           bun run typecheck
 
+      - name: Diagnostic Git status
+        run: git status
+
       - name: Version bump
         run: |
-          # Use npm version since bun version doesn't always handle tags as expected in CI
-          npm version ${{ github.event.inputs.bump }} -m "chore: release v%s [skip ci]"
+          NEW_VERSION=$(npm version ${{ github.event.inputs.bump }} --no-git-tag-version)
+          git add package.json bun.lockb || true
+          git commit -m "chore: release $NEW_VERSION [skip ci]"
+          git tag $NEW_VERSION
 
       - name: Publish to NPM
-        run: npm publish
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
