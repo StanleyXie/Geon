@@ -157,6 +157,7 @@ function makeFetchResponse(body: string, contentType = "text/plain", ok = true, 
     statusText: ok ? "OK" : "Not Found",
     headers: { get: (_: string) => contentType },
     text: () => Promise.resolve(body),
+    json: () => Promise.resolve({}),
   } as unknown as Response);
 }
 

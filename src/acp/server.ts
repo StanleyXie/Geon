@@ -206,7 +206,7 @@ async function* transformStream(
   for await (const chunk of source) {
     if (chunk.type !== "text") { yield chunk; continue; }
 
-    const text = stripRoleMarkers(chunk.text);
+    const text = stripRoleMarkers(chunk.text || "");
     lineBuf += text;
     let nl: number;
     while ((nl = lineBuf.indexOf("\n")) !== -1) {
@@ -581,7 +581,7 @@ export class UniversalAcpAgent implements Agent {
       });
 
       // We don't throw here, allowing the session to remain alive
-      return { stopReason: "completed" };
+      return { stopReason: "end_turn" };
     }
 
     if (signal.aborted) return { stopReason: "cancelled" };
@@ -969,7 +969,7 @@ export class UniversalAcpAgent implements Agent {
     if (spec.provider === "anthropic") {
       return new ClaudeAdapter(modelId, { apiKey: providerConfig?.apiKey });
     }
-    if (spec.provider === "local") {
+    if ((spec.provider as any) === "local") {
       return new LocalModelAdapter(modelId, {
         endpoint: (providerConfig?.parameters?.endpoint as string) || "http://localhost:8000/v1",
         apiKey: providerConfig?.apiKey

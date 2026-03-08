@@ -1,4 +1,4 @@
-export type Provider = "anthropic" | "google";
+export type Provider = "anthropic" | "google" | "local";
 export type MessageRole = "system" | "user" | "assistant" | "tool_call" | "tool_result";
 
 export interface CanonicalMessage {
