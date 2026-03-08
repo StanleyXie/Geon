@@ -94,7 +94,7 @@ describe("toolCallLocations", () => {
   });
 
   it("returns empty for Read with missing path", () => {
-    expect(toolCallLocations("Read", {})).toEqual([{ path: "", line: 1 }]);
+    expect(toolCallLocations("Read", {})).toEqual([]);
   });
 
   it("returns empty for WebFetch (no file location)", () => {
