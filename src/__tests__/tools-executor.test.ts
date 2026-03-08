@@ -164,17 +164,17 @@ function makeFetchResponse(body: string, contentType = "text/plain", ok = true, 
 describe("WebFetch", () => {
   let origFetch: typeof globalThis.fetch;
   beforeEach(() => { origFetch = globalThis.fetch; });
-  afterEach(() => { globalThis.fetch = origFetch; });
+  afterEach(() => { (globalThis as any).fetch = origFetch; });
 
   it("returns plain text body unchanged", async () => {
-    globalThis.fetch = () => makeFetchResponse("hello world");
+    (globalThis as any).fetch = () => makeFetchResponse("hello world");
     const result = await executeToolCall("WebFetch", { url: "https://example.com" }, "/tmp");
     expect(result).toBe("hello world");
   });
 
   it("strips HTML tags from HTML response", async () => {
     const html = "<html><body><h1>Title</h1><p>Content here</p></body></html>";
-    globalThis.fetch = () => makeFetchResponse(html, "text/html");
+    (globalThis as any).fetch = () => makeFetchResponse(html, "text/html");
     const result = await executeToolCall("WebFetch", { url: "https://example.com" }, "/tmp");
     expect(result).toContain("Title");
     expect(result).toContain("Content here");
@@ -184,7 +184,7 @@ describe("WebFetch", () => {
 
   it("strips script and style blocks from HTML", async () => {
     const html = "<html><head><style>body{color:red}</style><script>alert(1)</script></head><body>Real content</body></html>";
-    globalThis.fetch = () => makeFetchResponse(html, "text/html");
+    (globalThis as any).fetch = () => makeFetchResponse(html, "text/html");
     const result = await executeToolCall("WebFetch", { url: "https://example.com" }, "/tmp");
     expect(result).toContain("Real content");
     expect(result).not.toContain("color:red");
@@ -192,7 +192,7 @@ describe("WebFetch", () => {
   });
 
   it("throws on HTTP error status", async () => {
-    globalThis.fetch = () => makeFetchResponse("", "text/plain", false, 404);
+    (globalThis as any).fetch = () => makeFetchResponse("", "text/plain", false, 404);
     await expect(
       executeToolCall("WebFetch", { url: "https://example.com/missing" }, "/tmp"),
     ).rejects.toThrow("HTTP 404");
@@ -225,13 +225,13 @@ describe("WebSearch", () => {
     process.env["BRAVE_SEARCH_API_KEY"] = "test-key";
   });
   afterEach(() => {
-    globalThis.fetch = origFetch;
+    (globalThis as any).fetch = origFetch;
     if (origEnv === undefined) delete process.env["BRAVE_SEARCH_API_KEY"];
     else process.env["BRAVE_SEARCH_API_KEY"] = origEnv;
   });
 
   it("returns formatted results", async () => {
-    globalThis.fetch = () => makeSearchResponse([
+    (globalThis as any).fetch = () => makeSearchResponse([
       { title: "Bun Docs", url: "https://bun.sh/docs", description: "Official Bun documentation" },
       { title: "Bun GitHub", url: "https://github.com/oven-sh/bun", description: "Source code" },
     ]);
@@ -244,7 +244,7 @@ describe("WebSearch", () => {
   });
 
   it("filters by allowed_domains", async () => {
-    globalThis.fetch = () => makeSearchResponse([
+    (globalThis as any).fetch = () => makeSearchResponse([
       { title: "A", url: "https://allowed.com/page", description: "" },
       { title: "B", url: "https://other.com/page", description: "" },
     ]);
@@ -257,7 +257,7 @@ describe("WebSearch", () => {
   });
 
   it("filters by blocked_domains", async () => {
-    globalThis.fetch = () => makeSearchResponse([
+    (globalThis as any).fetch = () => makeSearchResponse([
       { title: "A", url: "https://good.com/page", description: "" },
       { title: "B", url: "https://spam.com/page", description: "" },
     ]);
@@ -270,7 +270,7 @@ describe("WebSearch", () => {
   });
 
   it("returns no results message when all filtered", async () => {
-    globalThis.fetch = () => makeSearchResponse([
+    (globalThis as any).fetch = () => makeSearchResponse([
       { title: "A", url: "https://blocked.com/page", description: "" },
     ]);
     const result = await executeToolCall("WebSearch", {

@@ -955,7 +955,7 @@ export class UniversalAcpAgent implements Agent {
 
   // ---- private helpers -----------------------------------------------------
 
-  private makeAdapter(modelId: string): ClaudeAdapter | GeminiAdapter {
+  private makeAdapter(modelId: string): ProviderAdapter {
     const spec = MODEL_SPECS[modelId];
     if (!spec) throw new Error(`No adapter for model: ${modelId}`);
 

@@ -70,7 +70,7 @@ export async function groundedSearch(prompt: string): Promise<string> {
         },
       });
 
-      const text = response.text();
+      const text = (response as any).text;
       return text || "No results found from Google Search grounding.";
     } catch (err: unknown) {
       const errorStr = String(err);
