@@ -1,6 +1,6 @@
 {
   "name": "geon-agent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "GEON — multi-provider ACP agent for Claude and Gemini with L1/L2/L3 context pipeline",
   "type": "module",
   "bin": {
