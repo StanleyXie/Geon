@@ -41,7 +41,7 @@ jobs:
         run: |
           bun test
           bun run build
-          ./dist/geon --version
+          ./dist/index.js --version
           bun audit
           bun run typecheck
 

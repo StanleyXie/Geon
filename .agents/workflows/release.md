@@ -2,35 +2,37 @@
 description: Automated CI/CD pipeline for Geon (Continuous Integration and Deployment)
 ---
 
-This workflow handles the building, testing, and release of new versions. It should be triggered manually or after major changes.
+This workflow automates the build, test, and release process for Geon. Use this to safely push a new version to GitHub and NPM.
 
-### 🧪 1. CI: Run Testing Workflow
-Run all quality gates and tests before proceeding.
-// turbo
+// turbo-all
+### 🚢 1. Pre-release Quality Gate
+Run the complete test suite to ensure no regressions.
 ```bash
 /test
 ```
 
-### 🔨 2. CI: Build Binary
-Compile the binary for distribution.
-// turbo
+### 🏷️ 2. Version Bump
+Bump the version in `package.json` (e.g., patch, minor).
+```bash
+# Example: bun version patch
+# Use 'bun version minor' or 'bun version major' if needed
+bun version patch
+```
+
+### 📦 3. Build & Compile
+Generate the final production binary for distribution.
 ```bash
 bun run build
 ```
 
-### 🔖 3. CD: Version Bump & Tagging
-Prepare for a new release.
-*   Update `package.json` with the new version.
-*   Create a Git tag.
-*   Push to remote origin.
-
-### 🚀 4. CD: Publish to Registry
-Publish the final package to the NPM registry once tests pass.
-// turbo
+### 🚀 4. Publish to NPM
+Release the scoped package to the public NPM registry.
 ```bash
 npm publish --access public
 ```
 
-### 🏁 5. Post-Release
-*   Verify the page on [NPM](https://www.npmjs.com/package/geon-agent).
-*   Inform the users of the results of the CI/CD job.
+### 🚩 5. Sync with GitHub
+Push the new version, tags, and code to the remote repository.
+```bash
+git push --follow-tags
+```

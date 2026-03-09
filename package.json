@@ -4,10 +4,10 @@
   "description": "GEON — multi-provider ACP agent for Claude and Gemini with L1/L2/L3 context pipeline",
   "type": "module",
   "bin": {
-    "geon": "dist/geon"
+    "geon": "dist/index.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --compile --outfile dist/geon --target bun --minify",
+    "build": "bun build src/index.ts --outfile dist/index.js --target bun --minify && chmod +x dist/index.js",
     "build:lib": "bun build src/lib.ts --outfile dist/lib.js --target bun",
     "dev": "bun src/index.ts",
     "test": "bun test",

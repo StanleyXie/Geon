@@ -19,7 +19,7 @@ jobs:
       - name: Build binary
         run: bun run build
       - name: E2E Check
-        run: ./dist/geon --version
+        run: ./dist/index.js --version
       - name: Security audit
         run: bun audit
       - name: Type check
