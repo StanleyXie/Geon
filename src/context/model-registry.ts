@@ -50,6 +50,16 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     provider: "local", numLayers: 48, numAttentionHeads: 48,
     numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
   },
+  "llama-3-8b": {
+    id: "llama-3-8b", displayName: "Llama 3 8B (llama.cpp)",
+    provider: "llama_cpp", numLayers: 32, numAttentionHeads: 32,
+    numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 128256,
+  },
+  "qwen3.5-9b-mlx": {
+    id: "qwen3.5-9b-mlx", displayName: "Qwen 3.5 9B (LM Studio)",
+    provider: "lmstudio", numLayers: 48, numAttentionHeads: 48,
+    numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
+  },
 };
 
 export const PRICING: Record<string, PricingSpec> = {

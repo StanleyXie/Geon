@@ -970,9 +970,13 @@ export class UniversalAcpAgent implements Agent {
     if (spec.provider === "anthropic") {
       return new ClaudeAdapter(modelId, { apiKey: providerConfig?.apiKey });
     }
-    if ((spec.provider as any) === "local") {
+    if (spec.provider === "local" || spec.provider === "llama_cpp" || spec.provider === "lmstudio") {
+      let defaultEndpoint = "http://localhost:8000/v1";
+      if (spec.provider === "llama_cpp") defaultEndpoint = "http://localhost:8080/v1";
+      if (spec.provider === "local") defaultEndpoint = "http://localhost:1234/v1";
+
       return new LocalModelAdapter(modelId, {
-        endpoint: (providerConfig?.parameters?.endpoint as string) || "http://localhost:8000/v1",
+        endpoint: (providerConfig?.parameters?.endpoint as string) || defaultEndpoint,
         apiKey: providerConfig?.apiKey
       });
     }

@@ -21,6 +21,8 @@ export interface GeonSettings {
         google?: ProviderConfig;
         anthropic?: ProviderConfig;
         local?: ProviderConfig;
+        llama_cpp?: ProviderConfig;
+        lmstudio?: ProviderConfig;
         [key: string]: ProviderConfig | undefined;
     };
     /** Global default model ID. */
@@ -43,6 +45,20 @@ export const DEFAULT_SETTINGS: GeonSettings = {
         local: {
             enabled: true,
             defaultModel: "qwen3.5-9b",
+            parameters: {
+                endpoint: "http://localhost:1234/v1"
+            }
+        },
+        llama_cpp: {
+            enabled: true,
+            defaultModel: "llama-3-8b",
+            parameters: {
+                endpoint: "http://localhost:8080/v1"
+            }
+        },
+        lmstudio: {
+            enabled: true,
+            defaultModel: "qwen3.5-9b-mlx",
             parameters: {
                 endpoint: "http://localhost:8000/v1"
             }
@@ -100,6 +116,26 @@ export function mergeSettings(
             ...merged.providers.local,
             enabled: true,
             parameters: { ...merged.providers.local?.parameters, endpoint: incoming["local_endpoint"] }
+        };
+    }
+    if (typeof incoming["llama_cpp_enabled"] === "boolean") {
+        merged.providers.llama_cpp = { ...merged.providers.llama_cpp, enabled: incoming["llama_cpp_enabled"] };
+    }
+    if (typeof incoming["llama_cpp_endpoint"] === "string") {
+        merged.providers.llama_cpp = {
+            ...merged.providers.llama_cpp,
+            enabled: true,
+            parameters: { ...merged.providers.llama_cpp?.parameters, endpoint: incoming["llama_cpp_endpoint"] }
+        };
+    }
+    if (typeof incoming["lmstudio_enabled"] === "boolean") {
+        merged.providers.lmstudio = { ...merged.providers.lmstudio, enabled: incoming["lmstudio_enabled"] };
+    }
+    if (typeof incoming["lmstudio_endpoint"] === "string") {
+        merged.providers.lmstudio = {
+            ...merged.providers.lmstudio,
+            enabled: true,
+            parameters: { ...merged.providers.lmstudio?.parameters, endpoint: incoming["lmstudio_endpoint"] }
         };
     }
 
