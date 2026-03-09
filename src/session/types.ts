@@ -3,7 +3,7 @@ export interface HeaderLine {
   sessionId: string;
   parentSessionId: string | null;
   model: string;
-  provider: "anthropic" | "google" | "google-claude" | "local";
+  provider: "anthropic" | "google" | "google-claude" | "local" | "llama_cpp" | "lmstudio";
   cwd: string;
   createdAt: number;
 }
