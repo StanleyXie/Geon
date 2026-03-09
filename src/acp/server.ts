@@ -51,6 +51,9 @@ function assertValidSessionId(sessionId: string): void {
 
 function renderToolBlock(tag: string, content: string): string {
   const trimmed = content.trimEnd();
+  if (tag === "think") {
+    return `<details>\n<summary>Thinking Process</summary>\n\n${trimmed.trim()}\n\n</details>`;
+  }
   if (tag === "tool_call") {
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
@@ -73,8 +76,8 @@ function transformToolCallXml(text: string): string {
     (_m, body: string) => renderToolBlock("tool_call", body),
   );
   out = out.replace(
-    /<tool_response>([\s\S]*?)<\/tool_response>/g,
-    (_m, body: string) => renderToolBlock("tool_response", body),
+    /<(tool_response|think)>([\s\S]*?)<\/\1>/g,
+    (_m, tag: string, body: string) => renderToolBlock(tag, body),
   );
   return out;
 }
@@ -171,8 +174,8 @@ async function* transformStream(
 
   function processLine(line: string): string | null {
     if (!xmlTag) {
-      // Detect opening tag on its own line: "<tool_call>" or "<tool_response>"
-      const m = /^<(tool_call|tool_response)>\s*$/.exec(line.trim());
+      // Detect opening tag on its own line: "<tool_call>", "<tool_response>", or "<think>"
+      const m = /^<(tool_call|tool_response|think)>\s*$/.exec(line.trim());
       if (m) { xmlTag = m[1]!; xmlBuf = ""; return null; }
       return line;
     }
@@ -324,6 +327,30 @@ export class UniversalAcpAgent implements Agent {
           {
             id: "local_endpoint",
             name: "Local Endpoint",
+            description: "OpenAI-compatible endpoint (e.g. http://localhost:1234/v1)",
+            type: "string",
+          },
+          {
+            id: "llama_cpp_enabled",
+            name: "Enable llama.cpp",
+            description: "Whether to enable llama.cpp provider",
+            type: "boolean",
+          },
+          {
+            id: "llama_cpp_endpoint",
+            name: "llama.cpp Endpoint",
+            description: "OpenAI-compatible endpoint (e.g. http://localhost:8080/v1)",
+            type: "string",
+          },
+          {
+            id: "lmstudio_enabled",
+            name: "Enable LM Studio",
+            description: "Whether to enable LM Studio provider",
+            type: "boolean",
+          },
+          {
+            id: "lmstudio_endpoint",
+            name: "LM Studio Endpoint",
             description: "OpenAI-compatible endpoint (e.g. http://localhost:8000/v1)",
             type: "string",
           },
@@ -337,7 +364,7 @@ export class UniversalAcpAgent implements Agent {
       } as any,
       agentInfo: {
         name: "Geon",
-        version: "0.1.0",
+        version: "0.1.9",
       },
     };
   }
@@ -975,8 +1002,12 @@ export class UniversalAcpAgent implements Agent {
       if (spec.provider === "llama_cpp") defaultEndpoint = "http://localhost:8080/v1";
       if (spec.provider === "local") defaultEndpoint = "http://localhost:1234/v1";
 
+      const endpoint = (providerConfig?.parameters?.endpoint as string)
+        || (this.settings.providers.local?.parameters?.endpoint as string)
+        || defaultEndpoint;
+
       return new LocalModelAdapter(modelId, {
-        endpoint: (providerConfig?.parameters?.endpoint as string) || defaultEndpoint,
+        endpoint,
         apiKey: providerConfig?.apiKey
       });
     }

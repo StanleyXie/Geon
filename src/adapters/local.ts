@@ -86,6 +86,41 @@ export class LocalModelAdapter implements ProviderAdapter {
         let outputTokens = 0;
         let cacheHitTokens = 0;
 
+        // --- Stream Cleaner State ---
+        let stopTriggered = false;
+        let textBuffer = ""; // used to check for stop sequences
+
+        const cleanText = (text: string): string => {
+            if (stopTriggered) return "";
+
+            // 1. Remove raw chat delimiters that often leak from local models
+            let cleaned = text
+                .replace(/<\|im_end\|>/g, "")
+                .replace(/<\|im_start\|>/g, "")
+                .replace(/<\|endoftext\|>/g, "")
+                .replace(/<\|end_of_turn\|>/g, "");
+
+            // 2. Prevent hallucinated "User:" turns (the "hallucination loop")
+            const stopSequences = ["\n## User", "\nUser:", "\n## Assistant", "\nAssistant:"];
+            textBuffer += cleaned;
+            for (const seq of stopSequences) {
+                const idx = textBuffer.indexOf(seq);
+                if (idx !== -1) {
+                    stopTriggered = true;
+                    // Return the portion before the stop sequence
+                    const result = textBuffer.substring(0, idx);
+                    textBuffer = ""; // clear so we don't return it again 
+                    return result;
+                }
+            }
+
+            // Keep buffer reasonable for stop sequence detection
+            if (textBuffer.length > 200) textBuffer = textBuffer.slice(-100);
+
+            return cleaned;
+        };
+        // --- End Stream Cleaner ---
+
         try {
             while (true) {
                 const { done, value } = await reader.read();
@@ -104,7 +139,7 @@ export class LocalModelAdapter implements ProviderAdapter {
                         try {
                             const data = JSON.parse(jsonStr);
 
-                            // Capture usage if present (typically in the last chunk with stream_options)
+                            // Capture usage if present
                             if (data.usage) {
                                 inputTokens = data.usage.prompt_tokens || inputTokens;
                                 outputTokens = data.usage.completion_tokens || outputTokens;
@@ -119,21 +154,15 @@ export class LocalModelAdapter implements ProviderAdapter {
                                 }
                             }
 
-                            // Capture llama.cpp specific timings for cache hit tokens
-                            if (data.timings) {
-                                if (typeof data.timings.cache_n === "number" && data.timings.cache_n > 0) {
-                                    cacheHitTokens = data.timings.cache_n;
-                                } else if (typeof data.timings.prompt_n === "number" && inputTokens > data.timings.prompt_n) {
-                                    // Fallback: If prompt_n (newly processed) is less than total input tokens, the rest were cached
-                                    cacheHitTokens = inputTokens - data.timings.prompt_n;
-                                }
-                            }
-
                             const choice = data.choices?.[0];
                             const delta = choice?.delta;
 
                             if (delta?.content) {
-                                yield { type: "text", text: delta.content };
+                                const outText = cleanText(delta.content);
+                                if (outText) {
+                                    yield { type: "text", text: outText };
+                                }
+                                if (stopTriggered) break; // Exit loop if we hit a hallucinated turn
                             }
 
                             if (delta?.tool_calls) {
@@ -152,8 +181,6 @@ export class LocalModelAdapter implements ProviderAdapter {
                                 }
                             }
 
-                            // In OpenAI streaming, finish_reason "tool_calls" or "stop" indicates completion
-                            // If we have aggregated tool calls and the stream is finishing, yield them.
                             if (choice?.finish_reason === "tool_calls" || (choice?.finish_reason === "stop" && toolCalls.size > 0)) {
                                 for (const [index, state] of toolCalls) {
                                     try {
@@ -174,9 +201,13 @@ export class LocalModelAdapter implements ProviderAdapter {
                         }
                     }
                 }
+                if (stopTriggered) {
+                    reader.cancel(); // Close the connection if we hit a stop sequence
+                    break;
+                }
             }
 
-            // Final fallback: if the stream ended without a clear finish_reason but we have tool calls
+            // Final fallback for tool calls
             if (toolCalls.size > 0) {
                 for (const [index, state] of toolCalls) {
                     try {
