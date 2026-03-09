@@ -10,7 +10,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
-  console.error("Geon v0.1.4");
+  console.error("Geon v0.1.6");
   process.exit(0);
 }
 
