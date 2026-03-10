@@ -60,6 +60,12 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     provider: "lmstudio", numLayers: 48, numAttentionHeads: 48,
     numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
   },
+  "qwen3.5-9b-gguf": {
+    id: "qwen3.5-9b-gguf", displayName: "Qwen 3.5 9B (GGUF)",
+    apiModelId: "unsloth/Qwen3.5-9B-GGUF:Q4_K_M",
+    provider: "lmstudio", numLayers: 48, numAttentionHeads: 48,
+    numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
+  },
 };
 
 export const PRICING: Record<string, PricingSpec> = {

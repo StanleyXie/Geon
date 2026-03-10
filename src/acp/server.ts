@@ -364,7 +364,7 @@ export class UniversalAcpAgent implements Agent {
       } as any,
       agentInfo: {
         name: "Geon",
-        version: "0.1.9",
+        version: "0.1.10",
       },
     };
   }
@@ -1006,7 +1006,7 @@ export class UniversalAcpAgent implements Agent {
         || (this.settings.providers.local?.parameters?.endpoint as string)
         || defaultEndpoint;
 
-      return new LocalModelAdapter(modelId, {
+      return new LocalModelAdapter(spec.apiModelId || modelId, {
         endpoint,
         apiKey: providerConfig?.apiKey
       });
