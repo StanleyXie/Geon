@@ -283,6 +283,12 @@ export class UniversalAcpAgent implements Agent {
   // ---- initialize ----------------------------------------------------------
 
   async initialize(req: InitializeRequest): Promise<InitializeResponse> {
+    const incomingConfig = (req as any).clientConfig || (req as any).settings;
+    if (incomingConfig) {
+      process.stderr.write(`[GEON] initialize received config: ${JSON.stringify(incomingConfig)}\n`);
+      this.settings = mergeSettings(this.settings, incomingConfig);
+    }
+
     return {
       protocolVersion: req.protocolVersion,
       agentCapabilities: {
@@ -364,7 +370,7 @@ export class UniversalAcpAgent implements Agent {
       } as any,
       agentInfo: {
         name: "Geon",
-        version: "0.1.12",
+        version: "0.1.13",
       },
     };
   }
@@ -1001,6 +1007,8 @@ export class UniversalAcpAgent implements Agent {
       let defaultEndpoint = "http://localhost:8000/v1";
 
       const endpoint = (providerConfig?.parameters?.endpoint as string)
+        || (this.settings.providers.lmstudio?.parameters?.endpoint as string)
+        || (this.settings.providers.llama_cpp?.parameters?.endpoint as string)
         || (this.settings.providers.local?.parameters?.endpoint as string)
         || defaultEndpoint;
 
