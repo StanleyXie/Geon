@@ -46,13 +46,13 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
   },
   // ---- Local Models (OpenAI-compatible) -------------------------------------
   "qwen3.5-9b": {
-    id: "qwen3.5-9b", displayName: "Qwen 3.5 9B (Local)",
+    id: "qwen3.5-9b", displayName: "Qwen 3.5 9B (Local Server)",
     provider: "local", numLayers: 48, numAttentionHeads: 48,
     numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
   },
   "llama-3-8b": {
-    id: "llama-3-8b", displayName: "Llama 3 8B (llama.cpp)",
-    provider: "llama_cpp", numLayers: 32, numAttentionHeads: 32,
+    id: "llama-3-8b", displayName: "Meta Llama-3 8B",
+    provider: "local", numLayers: 32, numAttentionHeads: 32,
     numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 128256,
   },
   "qwen3.5-9b-mlx": {
@@ -61,9 +61,9 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
   },
   "qwen3.5-9b-gguf": {
-    id: "qwen3.5-9b-gguf", displayName: "Qwen 3.5 9B (GGUF)",
+    id: "qwen3.5-9b-gguf", displayName: "Qwen 3.5 9B (GGUF Server)",
     apiModelId: "unsloth/Qwen3.5-9B-GGUF:Q4_K_M",
-    provider: "lmstudio", numLayers: 48, numAttentionHeads: 48,
+    provider: "local", numLayers: 48, numAttentionHeads: 48,
     numKvHeads: 8, headDim: 128, maxContext: 8192, dtypeBytes: 2, vocabSize: 151643,
   },
 };

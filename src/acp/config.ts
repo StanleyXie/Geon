@@ -46,7 +46,7 @@ export const DEFAULT_SETTINGS: GeonSettings = {
             enabled: true,
             defaultModel: "qwen3.5-9b",
             parameters: {
-                endpoint: "http://localhost:1234/v1"
+                endpoint: "http://localhost:8000/v1"
             }
         },
         llama_cpp: {
