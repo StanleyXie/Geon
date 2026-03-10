@@ -53,7 +53,7 @@ export const DEFAULT_SETTINGS: GeonSettings = {
             enabled: true,
             defaultModel: "llama-3-8b",
             parameters: {
-                endpoint: "http://localhost:8080/v1"
+                endpoint: "http://localhost:8000/v1"
             }
         },
         lmstudio: {

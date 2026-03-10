@@ -364,7 +364,7 @@ export class UniversalAcpAgent implements Agent {
       } as any,
       agentInfo: {
         name: "Geon",
-        version: "0.1.10",
+        version: "0.1.11",
       },
     };
   }
@@ -999,7 +999,7 @@ export class UniversalAcpAgent implements Agent {
     }
     if (spec.provider === "local" || spec.provider === "llama_cpp" || spec.provider === "lmstudio") {
       let defaultEndpoint = "http://localhost:8000/v1";
-      if (spec.provider === "llama_cpp") defaultEndpoint = "http://localhost:8080/v1";
+      if (spec.provider === "llama_cpp") defaultEndpoint = "http://localhost:8000/v1";
       if (spec.provider === "local") defaultEndpoint = "http://localhost:1234/v1";
 
       const endpoint = (providerConfig?.parameters?.endpoint as string)
